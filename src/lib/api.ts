@@ -1,8 +1,10 @@
 import axios, { AxiosError } from 'axios';
 import type { ApiError } from './types';
 
+// Dev: "/api" usa el proxy de Vite → localhost:3000.
+// Publicado: define VITE_API_URL con la URL del backend (incluye /api).
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: { 'Content-Type': 'application/json' },
   timeout: 20000,
 });
