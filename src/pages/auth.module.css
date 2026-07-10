@@ -1,0 +1,132 @@
+.wrap {
+  max-width: 440px;
+  margin-inline: auto;
+  padding-top: var(--sp-4);
+}
+.head {
+  text-align: center;
+  margin-bottom: var(--sp-5);
+}
+.mark {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--r-lg);
+  margin: 0 auto var(--sp-3);
+  background: var(--brand-600);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: var(--fw-black);
+  font-size: 30px;
+  box-shadow: var(--sh-brand);
+}
+.title {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-black);
+  letter-spacing: -0.02em;
+}
+.sub { color: var(--text-muted); margin-top: 2px; }
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.roleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+.foot {
+  text-align: center;
+  margin-top: var(--sp-4);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.foot a { font-weight: var(--fw-semibold); }
+.hint {
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--ink-400);
+  margin-top: var(--sp-3);
+}
+.label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--ink-700);
+  margin-bottom: 6px;
+}
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border, rgba(0, 0, 0, 0.12));
+}
+.oauth {
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Wizard de registro ── */
+.steps {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: var(--sp-3);
+}
+.stepDot {
+  width: 28px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--ink-100, rgba(0, 0, 0, 0.1));
+  transition: background 0.2s ease;
+}
+.stepDotOn {
+  background: var(--brand-600);
+}
+.stepHint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  margin-top: 2px;
+}
+.roleList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+.backLink:hover {
+  color: var(--ink-700);
+}
+.rolePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--brand-50, rgba(60, 193, 57, 0.12));
+  color: var(--brand-700, var(--brand-600));
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}

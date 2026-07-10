@@ -1,0 +1,326 @@
+/* Manager dashboard — analytical, dense, desktop-first grids */
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.chartGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-4);
+}
+@media (min-width: 760px) {
+  .chartGrid {
+    grid-template-columns: 1.4fr 1fr;
+  }
+}
+
+.cardTitle {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-700);
+}
+
+/* horizontal bars */
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.barRow {
+  display: grid;
+  grid-template-columns: 84px 1fr 48px;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+.barLabel {
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.barTrack {
+  height: 14px;
+  background: var(--surface-3);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: var(--brand-600);
+  transition: width var(--t-slow);
+}
+.barFillGold {
+  background: var(--gold-500);
+}
+.barFillInfo {
+  background: var(--info-600);
+}
+.barValue {
+  text-align: right;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.lineSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.lineLabels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* generic toolbar */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+  margin-bottom: var(--sp-4);
+}
+.toolbarSpacer {
+  flex: 1;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-4);
+}
+
+.rowBetween {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.muted {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.hoursLine {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.cardActions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
+/* emergency severity accent (left border by intensity) */
+.emCard {
+  border-left: 4px solid var(--line);
+}
+.emCardLOW {
+  border-left-color: var(--info-600);
+}
+.emCardMEDIUM {
+  border-left-color: var(--gold-700);
+}
+.emCardHIGH {
+  border-left-color: var(--warn-500);
+}
+.emCardCRITICAL {
+  border-left-color: var(--danger-500);
+  box-shadow: inset 3px 0 0 0 var(--danger-500);
+}
+
+/* primary collection center highlighted label */
+.primaryCenter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  background: var(--gold-300);
+  color: var(--gold-700);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+/* table */
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  min-width: 640px;
+}
+.table th {
+  text-align: left;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.table td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.table tr:last-child td {
+  border-bottom: none;
+}
+.table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+/* forms */
+.formGrid {
+  display: grid;
+  gap: var(--sp-4);
+}
+.formRow2 {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 520px) {
+  .formRow2 {
+    grid-template-columns: 1fr;
+  }
+}
+.itemRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--sp-3);
+  align-items: end;
+}
+
+.invGroup {
+  margin-bottom: var(--sp-4);
+}
+.invItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: var(--fs-sm);
+}
+.invItem:last-child {
+  border-bottom: none;
+}
+.sku {
+  font-family: ui-monospace, monospace;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.needRow {
+  margin-top: var(--sp-3);
+}
+
+/* ---------- KPIs: indicadores full-width (lista, sin tarjeta) ---------- */
+.kpiList {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--sp-5);
+}
+.kpiRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  transition: background 0.15s ease;
+}
+.kpiRow:last-child {
+  border-bottom: none;
+}
+.kpiRow:hover {
+  background: var(--surface-2);
+}
+.kpiIcon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  background: var(--brand-50);
+  color: var(--brand-600);
+}
+.kpiLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kpiValue {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-black);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text);
+}
+@media (max-width: 480px) {
+  .kpiRow {
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-2);
+  }
+  .kpiIcon {
+    width: 38px;
+    height: 38px;
+  }
+  .kpiValue {
+    font-size: var(--fs-xl);
+  }
+}
+
+/* ---------- Print: only the inventory (.nx-print-area) is printed ---------- */
+@media print {
+  :global(body *) {
+    visibility: hidden;
+  }
+  :global(.nx-print-area),
+  :global(.nx-print-area *) {
+    visibility: visible;
+  }
+  :global(.nx-print-area) {
+    position: absolute;
+    inset: 0;
+    padding: 24px;
+  }
+}

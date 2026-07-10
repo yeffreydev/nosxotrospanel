@@ -1,0 +1,125 @@
+.wrap {
+  display: grid;
+  gap: var(--sp-5);
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.dots {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.dot {
+  height: 8px;
+  flex: 1;
+  border-radius: var(--r-full);
+  background: var(--line);
+  transition: background var(--t-base);
+}
+.dotActive {
+  background: var(--brand-500);
+}
+.dotDone {
+  background: var(--brand-300);
+}
+
+.stepCard {
+  display: grid;
+  gap: var(--sp-5);
+}
+.stepHead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.stepIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-md);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.stepTitle {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.stepKicker {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.nav {
+  display: flex;
+  gap: var(--sp-3);
+}
+.nav > * {
+  flex: 1;
+}
+
+.needsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-1);
+}
+@media (min-width: 480px) {
+  .needsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.summary {
+  display: grid;
+  gap: var(--sp-3);
+}
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.summaryRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.summaryLabel {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.summaryValue {
+  font-weight: var(--fw-semibold);
+  text-align: right;
+}
+
+.recentItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.recentItem:last-child {
+  border-bottom: none;
+}
+.recentBody {
+  flex: 1;
+  min-width: 0;
+}
+.recentName {
+  font-weight: var(--fw-semibold);
+}
+.recentMeta {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.recentAside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
