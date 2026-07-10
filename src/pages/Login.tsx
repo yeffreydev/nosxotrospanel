@@ -24,9 +24,11 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
+  // Ruta de origen (p.ej. /organizador/nueva): tras login se vuelve ahí.
+  const from = (location.state as LocationState | null)?.from;
+
   function finish(data: Parameters<typeof setSession>[0]) {
     setSession(data);
-    const from = (location.state as LocationState | null)?.from;
     navigate(from ?? ROLE_HOME[data.user.role] ?? '/', { replace: true });
   }
 
@@ -100,7 +102,17 @@ export default function Login() {
       </Card>
 
       <p className={css.foot}>
-        {t('auth.noAccount')} <Link to="/registro">{t('auth.register')}</Link>
+        {t('auth.noAccount')}{' '}
+        <Link
+          to={{
+            pathname: '/registro',
+            // Si venía a crear campaña, preselecciona rol gestor en el registro.
+            search: from?.startsWith('/organizador') ? '?role=MANAGER' : undefined,
+          }}
+          state={{ from }}
+        >
+          {t('auth.register')}
+        </Link>
       </p>
     </div>
   );

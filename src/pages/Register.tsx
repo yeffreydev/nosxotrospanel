@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import css from './auth.module.css';
 import { Card, Input, Button, Banner, RadioCard, Icon } from '../components/ui';
 import type { IconName } from '../components/ui';
@@ -22,7 +22,10 @@ const TOTAL_STEPS = 2;
 export default function Register() {
   const t = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
+  // Origen (p.ej. /organizador/nueva): tras registrarse se va directo ahí.
+  const from = (location.state as { from?: string } | null)?.from;
   const register = useRegister();
   const googleLogin = useGoogleLogin();
   const createOrg = useCreateOrganization();
@@ -68,7 +71,7 @@ export default function Register() {
           contactPhone: phone || undefined,
         });
       }
-      navigate(ROLE_HOME[data.user.role] ?? '/', { replace: true });
+      navigate(from ?? ROLE_HOME[data.user.role] ?? '/', { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err));
     }
@@ -80,7 +83,7 @@ export default function Register() {
       // el rol seleccionado se aplica sólo si es una cuenta nueva
       const data = await googleLogin.mutateAsync({ idToken, role });
       setSession(data);
-      navigate(ROLE_HOME[data.user.role] ?? '/', { replace: true });
+      navigate(from ?? ROLE_HOME[data.user.role] ?? '/', { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err));
     }
