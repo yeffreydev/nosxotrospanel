@@ -11,11 +11,19 @@ import {
   Avatar,
   Banner,
   Icon,
+  Modal,
   CenteredSpinner,
   EmptyState,
   useToast,
 } from '../components/ui';
-import { useCampaign, useCreateDonation, useConfirmPayment } from '../hooks/api';
+import {
+  useCampaign,
+  useCreateDonation,
+  useConfirmPayment,
+  useMyCampaignEnrollment,
+  useEnrollAsVolunteer,
+  useLeaveCampaign,
+} from '../hooks/api';
 import type { CreateDonationBody } from '../hooks/api';
 import { useAuth } from '../store/auth';
 import { useT } from '../lib/i18n';
@@ -264,7 +272,7 @@ export default function CampaignDetail() {
         </Card>
       )}
 
-      {/* Voluntarios que busca */}
+      {/* Voluntarios que busca + inscripción */}
       {campaign.volunteerSkills && campaign.volunteerSkills.length > 0 && (
         <Card style={{ marginTop: 'var(--sp-4)' }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 'var(--sp-3)' }}>
@@ -276,6 +284,7 @@ export default function CampaignDetail() {
               <Badge key={sk} tone="info">{VOL_SKILL_LABEL[sk] ?? sk}</Badge>
             ))}
           </div>
+          <VolunteerEnroll campaignId={campaign.id} skills={campaign.volunteerSkills} isOwner={isOwner} />
         </Card>
       )}
 
@@ -327,6 +336,122 @@ export default function CampaignDetail() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+/* ───────── Inscripción como voluntario ─────────
+   El organizador solo puede sumar a sus brigadas a gente inscrita aquí. */
+function VolunteerEnroll({
+  campaignId,
+  skills,
+  isOwner,
+}: {
+  campaignId: string;
+  skills: string[];
+  isOwner: boolean;
+}) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { user } = useAuth();
+  const enrollmentQ = useMyCampaignEnrollment(campaignId, !!user && !isOwner);
+  const enroll = useEnrollAsVolunteer(campaignId);
+  const leave = useLeaveCampaign(campaignId);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+
+  if (isOwner) return null;
+
+  if (!user) {
+    return (
+      <div style={{ marginTop: 'var(--sp-3)' }}>
+        <Button variant="subtle" icon="users" onClick={() => navigate('/login')}>
+          Inicia sesión para ser voluntario
+        </Button>
+      </div>
+    );
+  }
+
+  const enrolled = enrollmentQ.data?.enrolled;
+
+  const submit = async () => {
+    setError('');
+    try {
+      await enroll.mutateAsync({ skills: picked.length ? picked : undefined, note: note.trim() || undefined });
+      toast.success('¡Te inscribiste como voluntario!');
+      setOpen(false);
+      setPicked([]);
+      setNote('');
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
+  };
+
+  const quit = async () => {
+    setError('');
+    try {
+      await leave.mutateAsync();
+      toast.success('Saliste de la campaña');
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 'var(--sp-3)' }}>
+      {error && <div style={{ marginBottom: 'var(--sp-2)' }}><Banner tone="error">{error}</Banner></div>}
+      {enrolled ? (
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Badge tone="success">Ya estás inscrito</Badge>
+          <Button variant="ghost" size="sm" loading={leave.isPending} onClick={quit}>
+            Salir de la campaña
+          </Button>
+        </div>
+      ) : (
+        <Button icon="users" onClick={() => setOpen(true)}>Inscribirme como voluntario</Button>
+      )}
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Inscribirme como voluntario"
+        footer={
+          <>
+            <Button variant="subtle" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button icon="check" loading={enroll.isPending} onClick={submit}>Inscribirme</Button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+          <div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 6 }}>
+              ¿En qué puedes ayudar? (opcional)
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              {skills.map((sk) => (
+                <Chip
+                  key={sk}
+                  active={picked.includes(sk)}
+                  onClick={() =>
+                    setPicked((prev) => (prev.includes(sk) ? prev.filter((s) => s !== sk) : [...prev, sk]))
+                  }
+                >
+                  {VOL_SKILL_LABEL[sk] ?? sk}
+                </Chip>
+              ))}
+            </div>
+          </div>
+          <Input
+            label="Mensaje para el organizador"
+            hint="opcional"
+            placeholder="Disponible fines de semana"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
+      </Modal>
     </div>
   );
 }

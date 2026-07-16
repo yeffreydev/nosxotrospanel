@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Button,
   Card,
@@ -105,6 +106,12 @@ export default function CensusWizard() {
   const sync = useSyncBeneficiaries();
   const geo = useGeolocation();
 
+  // Contexto opcional: el beneficiario puede registrarse ligado a una campaña
+  // y/o emergencia (ambos opcionales). Se pasan por URL: ?campaignId=&emergencyId=
+  const [searchParams] = useSearchParams();
+  const campaignId = searchParams.get('campaignId') || undefined;
+  const emergencyId = searchParams.get('emergencyId') || undefined;
+
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -172,6 +179,8 @@ export default function CensusWizard() {
         address: form.address.trim() || undefined,
         district: form.district || undefined,
         needs: form.needs.length ? form.needs : undefined,
+        campaignId,
+        emergencyId,
       });
       if (result.queued) {
         toast.success(t('census.savedOffline'), { silent: true });

@@ -16,6 +16,7 @@ export interface QueuedBeneficiary {
   district?: string;
   needs?: string[];
   emergencyId?: string;
+  campaignId?: string;
   queuedAt: string;
 }
 

@@ -14,6 +14,7 @@ import {
   useEmergencyReports,
   useUpdateEmergencyReport,
   useConvertEmergencyReport,
+  useEmergencies,
 } from '../../hooks/api';
 import { useT } from '../../lib/i18n';
 import { apiErrorMessage } from '../../lib/api';
@@ -49,9 +50,14 @@ export function ReportsTab() {
   const toast = useToast();
   const [status, setStatus] = useState('');
   const { data, isLoading } = useEmergencyReports(status ? { status } : undefined);
+  const { data: emergencies } = useEmergencies();
   const update = useUpdateEmergencyReport();
   const convert = useConvertEmergencyReport();
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const latestEmergencies = [...(emergencies ?? [])]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 10);
 
   async function setReportStatus(r: EmergencyReport, next: EmergencyReportStatus) {
     setBusyId(r.id);
@@ -79,6 +85,33 @@ export function ReportsTab() {
 
   return (
     <div>
+      <Card style={{ marginBottom: 'var(--sp-4)' }}>
+        <div style={{ fontWeight: 'var(--fw-bold)', marginBottom: 'var(--sp-2)' }}>
+          Últimas emergencias del sistema
+        </div>
+        {latestEmergencies.length === 0 ? (
+          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>—</span>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {latestEmergencies.map((e) => (
+              <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <SeverityBadge severity={e.severity} />
+                  <span style={{ fontWeight: 'var(--fw-bold)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+                  {e.district && <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>· {e.district}</span>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {e.mapUrl && (
+                    <Button variant="ghost" size="sm" icon="map" aria-label="Mapa" onClick={() => window.open(e.mapUrl, '_blank', 'noopener')} />
+                  )}
+                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', whiteSpace: 'nowrap' }}>{fmtDate(e.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <div className={s.toolbar}>
         <Select
           options={FILTER_OPTS}

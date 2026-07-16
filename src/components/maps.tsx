@@ -1,6 +1,8 @@
 import { MapContainer, TileLayer, Marker, Popup, CircleMarker } from 'react-leaflet';
-import { severityIcon, centerIcon, AREQUIPA_CENTER } from '../lib/leaflet';
-import type { Center, EmergencyMapPoint } from '../lib/types';
+import { Link } from 'react-router-dom';
+import { severityIcon, centerIcon, campaignIcon, AREQUIPA_CENTER } from '../lib/leaflet';
+import { formatSoles } from '../lib/format';
+import type { Campaign, Center, EmergencyMapPoint } from '../lib/types';
 
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ATTRIB = '&copy; OpenStreetMap';
@@ -8,11 +10,13 @@ const ATTRIB = '&copy; OpenStreetMap';
 export function OpsMap({
   emergencies = [],
   centers = [],
+  campaigns = [],
   height = 480,
   onSelectEmergency,
 }: {
   emergencies?: EmergencyMapPoint[];
   centers?: Center[];
+  campaigns?: Campaign[];
   height?: number | string;
   onSelectEmergency?: (id: string) => void;
 }) {
@@ -47,6 +51,21 @@ export function OpsMap({
               <strong>{c.name}</strong>
               <br />
               Carga: {c.loadPct}%
+            </Popup>
+          </Marker>
+        ) : null,
+      )}
+      {campaigns.map((c) =>
+        c.lat != null && c.lng != null ? (
+          <Marker key={`camp-${c.id}`} position={[c.lat, c.lng]} icon={campaignIcon()}>
+            <Popup>
+              <strong>{c.title}</strong>
+              <br />
+              {formatSoles(c.raisedAmount)}
+              {c.goalAmount ? ` · ${c.progressPct}%` : ''}
+              {c.district ? ` · ${c.district}` : ''}
+              <br />
+              <Link to={`/campanas/${c.slug}`}>Ver campaña →</Link>
             </Popup>
           </Marker>
         ) : null,

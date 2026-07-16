@@ -11,6 +11,7 @@ import {
   Chip,
   Banner,
   Icon,
+  ImageUpload,
   CenteredSpinner,
   useToast,
 } from '../../components/ui';
@@ -238,12 +239,11 @@ export default function CampaignForm() {
           value={category}
           onChange={(e) => setCategory(e.target.value as CampaignCategory)}
         />
-        <Input
+        <ImageUpload
           label={t('camp.fieldCover')}
           hint={t('common.optional')}
-          placeholder="https://… (URL de imagen)"
           value={coverPhoto}
-          onChange={(e) => setCoverPhoto(e.target.value)}
+          onChange={setCoverPhoto}
         />
         <div style={{ display: 'grid', gap: 'var(--sp-4)', gridTemplateColumns: '1fr 1fr' }}>
           <Input
@@ -314,17 +314,14 @@ export default function CampaignForm() {
           value={accountHolder}
           onChange={(e) => setAccountHolder(e.target.value)}
         />
-        <Input
-          label="QR de pago (URL de imagen)"
+        <ImageUpload
+          label="QR de pago"
           hint={t('common.optional')}
-          placeholder="https://…/qr.png"
           value={qrImageUrl}
-          onChange={(e) => setQrImageUrl(e.target.value)}
+          onChange={setQrImageUrl}
+          previewHeight={160}
+          previewFit="contain"
         />
-        {qrImageUrl.trim() && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={qrImageUrl} alt="QR de pago" style={{ width: 140, height: 140, objectFit: 'contain', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }} />
-        )}
       </Section>
 
       {/* 4. Voluntarios */}

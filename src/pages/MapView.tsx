@@ -2,19 +2,24 @@ import { useState } from 'react';
 import { PageHead } from '../components/layout/AppShell';
 import { OpsMap } from '../components/maps';
 import { Card, SegmentedControl, Badge, CenteredSpinner, Banner } from '../components/ui';
-import { useEmergencyMap, useCenters } from '../hooks/api';
+import { useEmergencyMap, useCenters, useCampaigns } from '../hooks/api';
 import { useT } from '../lib/i18n';
 import { SEVERITY_COLOR } from '../lib/format';
+import { CAMPAIGN_COLOR } from '../lib/leaflet';
 import type { Severity } from '../lib/types';
+
+type MapLayer = 'all' | 'emergencies' | 'centers' | 'campaigns';
 
 export default function MapView() {
   const t = useT();
-  const [layer, setLayer] = useState<'all' | 'emergencies' | 'centers'>('all');
+  const [layer, setLayer] = useState<MapLayer>('all');
   const { data: emergencies, isLoading: le, isError } = useEmergencyMap();
   const { data: centers, isLoading: lc } = useCenters();
+  const { data: campaigns, isLoading: lp } = useCampaigns({ status: 'ACTIVE' });
 
-  const showE = layer !== 'centers';
-  const showC = layer !== 'emergencies';
+  const showE = layer === 'all' || layer === 'emergencies';
+  const showC = layer === 'all' || layer === 'centers';
+  const showP = layer === 'all' || layer === 'campaigns';
 
   return (
     <div className="n-page">
@@ -29,6 +34,7 @@ export default function MapView() {
               { value: 'all', label: t('common.all') },
               { value: 'emergencies', label: t('map.emergencies') },
               { value: 'centers', label: t('map.centers') },
+              { value: 'campaigns', label: t('map.campaigns') },
             ]}
           />
         }
@@ -43,12 +49,13 @@ export default function MapView() {
       )}
 
       <Card pad={false} style={{ overflow: 'hidden' }}>
-        {le && lc ? (
+        {le && lc && lp ? (
           <CenteredSpinner label={t('common.loading')} />
         ) : (
           <OpsMap
             emergencies={showE ? (emergencies ?? []) : []}
             centers={showC ? (centers ?? []) : []}
+            campaigns={showP ? (campaigns ?? []) : []}
             height="min(68vh, 640px)"
           />
         )}
@@ -64,6 +71,10 @@ export default function MapView() {
         <Badge tone="success" dot>
           {t('map.centers')}
         </Badge>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)' }}>
+          <span style={{ width: 12, height: 12, borderRadius: '50%', background: CAMPAIGN_COLOR }} />
+          {t('map.campaigns')}
+        </span>
       </div>
     </div>
   );

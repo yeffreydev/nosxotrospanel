@@ -24,7 +24,7 @@ const TYPE_ICON: Record<DonationType, IconName> = {
 };
 
 const STATUS_PROGRESS: Record<DonationStatus, number> = {
-  PENDING: 20,
+  PROMISED: 20,
   RECEIVED: 50,
   IN_TRANSIT: 75,
   DELIVERED: 100,

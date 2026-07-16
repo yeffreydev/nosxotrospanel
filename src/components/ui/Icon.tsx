@@ -55,7 +55,9 @@ export type IconName =
   | 'lightbulb'
   | 'paw'
   | 'palette'
-  | 'cpu';
+  | 'cpu'
+  | 'upload'
+  | 'image';
 
 const PATHS: Record<IconName, string> = {
   heart: 'M12 21s-7.5-4.6-10-9C.5 9 1.7 5 5.5 5 8 5 9.5 7 12 9c2.5-2 4-4 6.5-4C22.3 5 23.5 9 22 12c-2.5 4.4-10 9-10 9z',
@@ -107,6 +109,8 @@ const PATHS: Record<IconName, string> = {
   calendar: 'M3 5h18v16H3zM3 9h18M8 3v4M16 3v4',
   location: 'M12 11a3 3 0 100-6 3 3 0 000 6zM12 2a7 7 0 017 7c0 5-7 13-7 13S5 14 5 9a7 7 0 017-7z',
   download: 'M12 3v12M7 10l5 5 5-5M5 21h14',
+  upload: 'M12 21V9M7 14l5-5 5 5M5 3h14',
+  image: 'M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6',
   activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
   book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5z',
   leaf: 'M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10zM2 22c1.5-5 5-9 9-11',

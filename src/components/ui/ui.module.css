@@ -526,6 +526,15 @@
   appearance: none;
   cursor: pointer;
   padding-right: var(--sp-7);
+  color: var(--text);
+}
+.selectWrap select:invalid,
+.selectWrap select option[value=""] {
+  color: var(--text-muted);
+}
+.selectWrap select option {
+  color: var(--text);
+  background: var(--surface);
 }
 .selectArrow {
   position: absolute;

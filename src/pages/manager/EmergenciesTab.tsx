@@ -141,6 +141,11 @@ export function EmergenciesTab() {
                 <Button variant="ghost" size="sm" icon="plus" onClick={() => setNeedFor(e)}>
                   Necesidad
                 </Button>
+                {e.mapUrl && (
+                  <Button variant="ghost" size="sm" icon="map" onClick={() => window.open(e.mapUrl, '_blank', 'noopener')}>
+                    Mapa
+                  </Button>
+                )}
                 {attended ? (
                   <Button
                     variant="ghost"
@@ -191,6 +196,7 @@ function EmergencyForm({ emergency, onClose }: { emergency: Emergency | null; on
   const [district, setDistrict] = useState(emergency?.district ?? '');
   const [status, setStatus] = useState<EmergencyStatus>(emergency?.status ?? 'ACTIVE');
   const [primaryCenterId, setPrimaryCenterId] = useState(emergency?.primaryCenterId ?? '');
+  const [mapUrl, setMapUrl] = useState(emergency?.mapUrl ?? '');
   const [error, setError] = useState<string | null>(null);
   const pending = create.isPending || update.isPending;
 
@@ -205,7 +211,7 @@ function EmergencyForm({ emergency, onClose }: { emergency: Emergency | null; on
       return;
     }
     setError(null);
-    const body = { title: title.trim(), description, severity, district, status, primaryCenterId };
+    const body = { title: title.trim(), description, severity, district, status, primaryCenterId, mapUrl: mapUrl.trim() || undefined };
     try {
       if (emergency) await update.mutateAsync({ id: emergency.id, body });
       else await create.mutateAsync(body);
@@ -247,6 +253,7 @@ function EmergencyForm({ emergency, onClose }: { emergency: Emergency | null; on
           onChange={(e) => setPrimaryCenterId(e.target.value)}
         />
         <Input label="Distrito" value={district} onChange={(e) => setDistrict(e.target.value)} />
+        <Input label="Link de mapa" placeholder="https://maps.google.com/?q=..." value={mapUrl} onChange={(e) => setMapUrl(e.target.value)} />
       </div>
     </Modal>
   );

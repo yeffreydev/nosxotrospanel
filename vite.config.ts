@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Backend NestJS en dev. El puerto sale de backend/.env (PORT=3101).
+// Overridable con BACKEND_URL por si corre en otro puerto/host.
+const BACKEND = process.env.BACKEND_URL || 'http://localhost:3101';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -54,19 +58,16 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
+      '/api': { target: BACKEND, changeOrigin: true },
+      // Imágenes subidas (portadas, QR): el backend las sirve fuera de /api.
+      '/uploads': { target: BACKEND, changeOrigin: true },
     },
   },
   preview: {
     port: 4173,
     proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
+      '/api': { target: BACKEND, changeOrigin: true },
+      '/uploads': { target: BACKEND, changeOrigin: true },
     },
   },
 });

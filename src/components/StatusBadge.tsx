@@ -4,6 +4,7 @@ import { useT } from '../lib/i18n';
 const TONE_MAP: Record<string, BadgeTone> = {
   // donation
   PENDING: 'warn',
+  PROMISED: 'warn',
   RECEIVED: 'info',
   IN_TRANSIT: 'info',
   DELIVERED: 'success',

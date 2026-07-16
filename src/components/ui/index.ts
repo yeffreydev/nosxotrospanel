@@ -24,6 +24,7 @@ export { Select } from './Select';
 export type { SelectOption } from './Select';
 export { NumberStepper } from './NumberStepper';
 export { Checkbox } from './Checkbox';
+export { ImageUpload } from './ImageUpload';
 export { RadioCard } from './RadioCard';
 export { Modal } from './Modal';
 export { ConfirmDialog } from './ConfirmDialog';

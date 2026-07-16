@@ -10,6 +10,8 @@ import type {
   Campaign,
   CampaignOperations,
   CampaignUpdate,
+  CampaignVolunteer,
+  MyCampaignEnrollment,
   Category,
   Center,
   Dispatch,
@@ -233,6 +235,51 @@ export function useCreateCenter() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['centers'] }),
   });
 }
+export function useUpdateCenter() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<Center> }) =>
+      api.patch<Center>(`/centers/${id}`, body).then((r) => r.data),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['centers'] });
+      qc.invalidateQueries({ queryKey: ['center', v.id] });
+      qc.invalidateQueries({ queryKey: ['campaign'] });
+    },
+  });
+}
+// Crea una categoría propia si la que el organizador necesita no existe.
+export function useCreateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; unit?: string; icon?: string }) =>
+      api.post<Category>('/categories', body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  });
+}
+
+/* ---------------- Uploads (imágenes) ---------------- */
+export interface UploadedImage {
+  filename: string;
+  mimetype: string;
+  size: number;
+  url: string; // URL absoluta servida por el backend (/uploads/<archivo>)
+}
+
+// Sube una imagen al backend y devuelve su URL pública, lista para guardarla en
+// coverPhoto / qrImageUrl / photoUrl.
+export function useUploadImage() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return api
+        .post<UploadedImage>('/uploads/image', form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        .then((r) => r.data);
+    },
+  });
+}
 
 /* ---------------- Campaigns (grow) ---------------- */
 export interface CreateCampaignBody {
@@ -444,23 +491,50 @@ export function useCheckout() {
 }
 
 /* ---------------- Beneficiaries ---------------- */
-export function useBeneficiaries(params?: { emergencyId?: string; status?: string; q?: string }) {
+export function useBeneficiaries(params?: {
+  emergencyId?: string;
+  campaignId?: string;
+  status?: string;
+  q?: string;
+}) {
   return useQuery({
     queryKey: ['beneficiaries', params],
     queryFn: () => get<Beneficiary[]>('/beneficiaries', params),
   });
 }
+export interface BeneficiaryBody {
+  docNumber: string;
+  fullName: string;
+  householdSize?: number;
+  phone?: string;
+  address?: string;
+  district?: string;
+  notes?: string;
+  photoUrl?: string;
+  emergencyId?: string;
+  campaignId?: string;
+  zoneId?: string;
+}
 export function useCreateBeneficiary() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: {
-      docNumber: string;
-      fullName: string;
-      householdSize?: number;
-      phone?: string;
-      district?: string;
-      emergencyId?: string;
-    }) => api.post<Beneficiary>('/beneficiaries', body).then((r) => r.data),
+    mutationFn: (body: BeneficiaryBody) =>
+      api.post<Beneficiary>('/beneficiaries', body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['beneficiaries'] }),
+  });
+}
+export function useUpdateBeneficiary() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<BeneficiaryBody> & { status?: string } }) =>
+      api.patch<Beneficiary>(`/beneficiaries/${id}`, body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['beneficiaries'] }),
+  });
+}
+export function useDeleteBeneficiary() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/beneficiaries/${id}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['beneficiaries'] }),
   });
 }
@@ -564,6 +638,16 @@ export function useCampaignOperations(idOrSlug?: string) {
 }
 function invalidateOps(qc: ReturnType<typeof useQueryClient>, campaignId?: string) {
   qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'operations'] });
+  qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'brigades'] });
+}
+// Todas las brigadas de la campaña, incluidas las que no tienen zona asignada
+// (las de /operations solo vienen anidadas dentro de cada zona).
+export function useCampaignBrigades(campaignId?: string) {
+  return useQuery({
+    queryKey: ['campaign', campaignId, 'brigades'],
+    queryFn: () => get<Brigade[]>(`/campaigns/${campaignId}/brigades`),
+    enabled: !!campaignId,
+  });
 }
 export function useCreateZone(campaignId?: string) {
   const qc = useQueryClient();
@@ -636,10 +720,189 @@ export function useRemoveBrigadeMember(campaignId?: string) {
   });
 }
 
+/* ---------------- Voluntarios inscritos en una campaña ---------------- */
+// Solo se puede sumar a una brigada a quien está inscrito en la campaña.
+function invalidateCampaignVolunteers(qc: ReturnType<typeof useQueryClient>, campaignId?: string) {
+  qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'volunteers'] });
+  invalidateOps(qc, campaignId);
+}
+
+export function useCampaignVolunteers(campaignId?: string) {
+  return useQuery({
+    queryKey: ['campaign', campaignId, 'volunteers'],
+    queryFn: () => get<CampaignVolunteer[]>(`/campaigns/${campaignId}/volunteers`),
+    enabled: !!campaignId,
+  });
+}
+
+/** Inscripción del usuario autenticado (para el botón "Inscribirme" en la campaña). */
+export function useMyCampaignEnrollment(campaignId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['campaign', campaignId, 'volunteers', 'me'],
+    queryFn: () => get<MyCampaignEnrollment>(`/campaigns/${campaignId}/volunteers/me`),
+    enabled: !!campaignId && enabled,
+  });
+}
+
+export function useEnrollAsVolunteer(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { skills?: string[]; note?: string }) =>
+      api.post(`/campaigns/${campaignId}/volunteers/me`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'volunteers', 'me'] });
+      invalidateCampaignVolunteers(qc, campaignId);
+    },
+  });
+}
+
+export function useLeaveCampaign(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete(`/campaigns/${campaignId}/volunteers/me`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'volunteers', 'me'] });
+      invalidateCampaignVolunteers(qc, campaignId);
+    },
+  });
+}
+
+/** El organizador inscribe a un usuario ya registrado, por correo. */
+export function useAddCampaignVolunteer(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { email: string; skills?: string[]; note?: string }) =>
+      api.post(`/campaigns/${campaignId}/volunteers`, body).then((r) => r.data),
+    onSuccess: () => invalidateCampaignVolunteers(qc, campaignId),
+  });
+}
+
+export function useRemoveCampaignVolunteer(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (volunteerId: string) =>
+      api.delete(`/campaigns/${campaignId}/volunteers/${volunteerId}`).then((r) => r.data),
+    onSuccess: () => invalidateCampaignVolunteers(qc, campaignId),
+  });
+}
+
 /* ---------------- Brigades of the current volunteer ---------------- */
 export function useCreateOrganization() {
   return useMutation({
     mutationFn: (body: { name: string; ruc: string; type?: string; contactPhone?: string; contactEmail?: string }) =>
       api.post<Organization>('/organizations', body).then((r) => r.data),
+  });
+}
+
+/* ---------------- Despacho desde el inventario de un centro ---------------- */
+export interface DispatchCenterItemBody {
+  itemId: string;
+  quantity: number;
+  zoneId?: string;
+  beneficiaryId?: string;
+  driverName?: string;
+  note?: string;
+}
+export function useDispatchCenterItem(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ centerId, body }: { centerId: string; body: DispatchCenterItemBody }) =>
+      api.post<Dispatch>(`/centers/${centerId}/dispatch`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['centers'] });
+      qc.invalidateQueries({ queryKey: ['center'] });
+      qc.invalidateQueries({ queryKey: ['beneficiaries'] });
+      qc.invalidateQueries({ queryKey: ['dispatches'] });
+      invalidateOps(qc, campaignId);
+    },
+  });
+}
+
+/* ---------------- Voluntarios (gestión por el gestor) ---------------- */
+export interface VolunteerProfileRow {
+  id: string;
+  availability?: string | null;
+  skills: string[];
+  user: { id: string; fullName: string; email: string; phone?: string | null };
+  _count?: { schedules: number };
+}
+export interface VolunteerScheduleRow {
+  id: string;
+  date?: string | null;
+  startTime: string;
+  endTime: string;
+  note?: string | null;
+  campaignId?: string | null;
+}
+export function useVolunteersList(q?: string) {
+  return useQuery({
+    queryKey: ['volunteers', q ?? ''],
+    queryFn: () => get<VolunteerProfileRow[]>('/volunteers', q ? { q } : undefined),
+  });
+}
+export function useCreateVolunteer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { fullName: string; phone?: string; email?: string; availability?: string; skills?: string[] }) =>
+      api.post<{ id: string; email: string; fullName: string; volunteerProfile?: { id: string } }>('/volunteers', body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['volunteers'] }),
+  });
+}
+export function useVolunteerSchedules(volunteerId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['volunteer', volunteerId, 'schedule'],
+    queryFn: () => get<VolunteerScheduleRow[]>(`/volunteers/${volunteerId}/schedule`),
+    enabled: !!volunteerId && enabled,
+  });
+}
+export function useAddVolunteerSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ volunteerId, body }: { volunteerId: string; body: { startTime: string; endTime: string; date?: string; note?: string; campaignId?: string } }) =>
+      api.post<VolunteerScheduleRow>(`/volunteers/${volunteerId}/schedule`, body).then((r) => r.data),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['volunteer', v.volunteerId, 'schedule'] });
+      qc.invalidateQueries({ queryKey: ['volunteers'] });
+    },
+  });
+}
+
+/* ---------------- Usuarios (alta con rol por el gestor) ---------------- */
+export function useCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { email: string; fullName: string; role: string; password?: string; phone?: string }) =>
+      api.post<User>('/users', body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+/* ---------------- Colaboradores de campaña ---------------- */
+export interface CampaignCollaboratorRow {
+  id: string;
+  userId: string;
+  user: { id: string; fullName: string; email: string; role: string };
+}
+export function useCampaignCollaborators(campaignId?: string) {
+  return useQuery({
+    queryKey: ['campaign', campaignId, 'collaborators'],
+    queryFn: () => get<CampaignCollaboratorRow[]>(`/campaigns/${campaignId}/collaborators`),
+    enabled: !!campaignId,
+  });
+}
+export function useAddCollaborator(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { userId?: string; email?: string }) =>
+      api.post<CampaignCollaboratorRow>(`/campaigns/${campaignId}/collaborators`, body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'collaborators'] }),
+  });
+}
+export function useRemoveCollaborator(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      api.delete(`/campaigns/${campaignId}/collaborators/${userId}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'collaborators'] }),
   });
 }

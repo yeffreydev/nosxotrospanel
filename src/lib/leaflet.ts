@@ -65,4 +65,17 @@ export function centerIcon(status: CenterStatus): L.DivIcon {
   });
 }
 
+export const CAMPAIGN_COLOR = '#7c3aed';
+
+export function campaignIcon(): L.DivIcon {
+  ensureLeafletIcons();
+  return L.divIcon({
+    className: 'nx-marker',
+    html: pinSvg(CAMPAIGN_COLOR, '★'),
+    iconSize: [30, 40],
+    iconAnchor: [15, 40],
+    popupAnchor: [0, -38],
+  });
+}
+
 export const AREQUIPA_CENTER: [number, number] = [-16.409, -71.537];

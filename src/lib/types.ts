@@ -29,7 +29,7 @@ export type DonationType = 'MONEY' | 'GOODS' | 'TIME';
 export type PaymentMethod = 'YAPE' | 'PLIN' | 'CARD' | 'CASH' | 'IN_KIND';
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
 export type DonationStatus =
-  | 'PENDING'
+  | 'PROMISED'
   | 'RECEIVED'
   | 'IN_TRANSIT'
   | 'DELIVERED'
@@ -237,6 +237,18 @@ export interface Brigade {
   members?: BrigadeMember[];
 }
 
+export interface ZoneDispatch {
+  id: string;
+  status: DispatchStatus;
+  items?: {
+    id: string;
+    description: string;
+    quantity: number;
+    delivered: boolean;
+    beneficiary?: { id: string; fullName: string } | null;
+  }[];
+}
+
 export interface Zone {
   id: string;
   campaignId: string;
@@ -250,6 +262,34 @@ export interface Zone {
   lng?: number;
   needs?: Need[];
   brigades?: Brigade[];
+  beneficiaries?: { id: string; fullName: string; status: BeneficiaryStatus }[];
+  dispatches?: ZoneDispatch[];
+}
+
+/** Voluntario inscrito en una campaña (vista del organizador). */
+export interface CampaignVolunteer {
+  id: string;
+  volunteerId: string;
+  skills: string[];
+  note?: string | null;
+  createdAt: string;
+  user: {
+    id: string;
+    fullName: string;
+    email: string;
+    phone?: string | null;
+    avatarUrl?: string | null;
+  };
+  brigade?: { memberId: string; id: string; name: string; role?: string | null } | null;
+}
+
+/** Estado de inscripción del usuario autenticado en una campaña. */
+export interface MyCampaignEnrollment {
+  enrolled: boolean;
+  id?: string;
+  skills?: string[];
+  note?: string | null;
+  createdAt?: string;
 }
 
 export interface CampaignOperations {
@@ -298,6 +338,7 @@ export interface Emergency {
   campaigns?: { id: string; slug: string; title: string }[];
   primaryCenterId?: string;
   primaryCenter?: Center;
+  mapUrl?: string;
   needsCount?: number;
   beneficiariesCount?: number;
   donationsCount?: number;
@@ -412,7 +453,10 @@ export interface Beneficiary {
   address?: string;
   district?: string;
   needs?: string[];
+  photoUrl?: string;
   emergencyId?: string;
+  campaignId?: string;
+  zoneId?: string;
   status: BeneficiaryStatus;
   clientId?: string;
   createdAt?: string;

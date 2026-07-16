@@ -69,7 +69,7 @@ export function statusTone(status: DonationStatus): 'success' | 'info' | 'warn' 
     case 'IN_TRANSIT':
     case 'RECEIVED':
       return 'info';
-    case 'PENDING':
+    case 'PROMISED':
       return 'warn';
     default:
       return 'neutral';
