@@ -9,7 +9,7 @@ import s from './manager.module.css';
 const TYPE_LABEL: Record<DonationType, string> = {
   MONEY: 'Dinero',
   GOODS: 'Bienes',
-  TIME: 'Tiempo',
+  TIME: 'Voluntariado',
 };
 
 export function KpisTab() {

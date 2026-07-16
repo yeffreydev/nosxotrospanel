@@ -388,6 +388,7 @@ export interface Center {
   status: CenterStatus;
   contactPhone?: string;
   openingHours?: string;
+  mapUrl?: string;
   campaignId?: string;
   inventory?: InventoryItem[];
   inventoryByCategory?: InventoryCategoryGroup[];

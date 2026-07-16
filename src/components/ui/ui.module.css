@@ -489,6 +489,13 @@
   color: var(--text-muted);
   font-size: var(--fs-xs);
 }
+/* Asterisco de campo obligatorio: marca la regla antes de que el usuario
+   intente guardar, no después de fallar. */
+.labelReq {
+  color: var(--danger-600);
+  font-weight: var(--fw-bold);
+  margin-left: -3px;
+}
 .control {
   width: 100%;
   min-height: 50px;

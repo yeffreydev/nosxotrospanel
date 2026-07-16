@@ -38,7 +38,7 @@ function donationLabel(d: Donation): string {
     return `${qty}${d.description ?? 'Bienes'}`;
   }
   const hrs = d.quantity != null ? `${d.quantity} h · ` : '';
-  return `${hrs}${d.description ?? 'Tiempo voluntario'}`;
+  return `${hrs}${d.description ?? 'Voluntariado'}`;
 }
 
 export default function DonorHome() {

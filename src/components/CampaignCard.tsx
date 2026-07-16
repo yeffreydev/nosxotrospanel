@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Card, Badge, ProgressBar, Icon } from './ui';
 import type { Campaign } from '../lib/types';
+import { assetUrl } from '../lib/assets';
 import {
   CAMPAIGN_CATEGORY,
   CAMPAIGN_STATUS,
@@ -16,6 +17,7 @@ export function CampaignCard({ campaign }: { campaign: Campaign }) {
   const st = CAMPAIGN_STATUS[campaign.status];
   const dleft = daysLeft(campaign.deadline);
   const funded = campaign.progressPct >= 100 || campaign.status === 'FUNDED';
+  const cover = assetUrl(campaign.coverPhoto);
 
   return (
     <Card
@@ -28,17 +30,15 @@ export function CampaignCard({ campaign }: { campaign: Campaign }) {
         aria-hidden="true"
         style={{
           height: 132,
-          background: campaign.coverPhoto
-            ? `center/cover no-repeat url(${campaign.coverPhoto})`
-            : 'var(--brand-600)',
+          background: cover ? `center/cover no-repeat url(${cover})` : 'var(--brand-600)',
           display: 'grid',
           placeItems: 'center',
           fontSize: 44,
           position: 'relative',
-          color: campaign.coverPhoto ? undefined : '#fff',
+          color: cover ? undefined : '#fff',
         }}
       >
-        {!campaign.coverPhoto && <Icon name={cat.icon} size={40} strokeWidth={1.6} />}
+        {!cover && <Icon name={cat.icon} size={40} strokeWidth={1.6} />}
         <span style={{ position: 'absolute', top: 10, left: 10 }}>
           <Badge tone="neutral">
             <Icon name={cat.icon} size={13} /> {cat.label}

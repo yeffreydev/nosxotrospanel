@@ -28,6 +28,7 @@ import type { CreateDonationBody } from '../hooks/api';
 import { useAuth } from '../store/auth';
 import { useT } from '../lib/i18n';
 import { apiErrorMessage } from '../lib/api';
+import { assetUrl } from '../lib/assets';
 import {
   CAMPAIGN_CATEGORY,
   CAMPAIGN_STATUS,
@@ -90,6 +91,7 @@ export default function CampaignDetail() {
 
   const cat = CAMPAIGN_CATEGORY[campaign.category];
   const st = CAMPAIGN_STATUS[campaign.status];
+  const cover = assetUrl(campaign.coverPhoto);
   const funded = campaign.progressPct >= 100 || campaign.status === 'FUNDED';
   const dleft = daysLeft(campaign.deadline);
   const isOwner = user?.id === campaign.organizerId;
@@ -145,18 +147,16 @@ export default function CampaignDetail() {
         style={{
           height: 200,
           borderRadius: 'var(--r-lg)',
-          background: campaign.coverPhoto
-            ? `center/cover no-repeat url(${campaign.coverPhoto})`
-            : 'var(--brand-600)',
+          background: cover ? `center/cover no-repeat url(${cover})` : 'var(--brand-600)',
           display: 'grid',
           placeItems: 'center',
           fontSize: 72,
           marginBottom: 'var(--sp-4)',
-          color: campaign.coverPhoto ? undefined : '#fff',
+          color: cover ? undefined : '#fff',
         }}
-        aria-hidden={!campaign.coverPhoto}
+        aria-hidden={!cover}
       >
-        {!campaign.coverPhoto && <Icon name={cat.icon} size={64} strokeWidth={1.4} />}
+        {!cover && <Icon name={cat.icon} size={64} strokeWidth={1.4} />}
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>

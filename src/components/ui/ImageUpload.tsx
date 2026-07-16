@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useUploadImage } from '../../hooks/api';
 import { apiErrorMessage } from '../../lib/api';
+import { assetUrl } from '../../lib/assets';
 import { Button } from './Button';
 import { Icon } from './Icon';
 import s from './ui.module.css';
@@ -30,6 +31,27 @@ export function ImageUpload({
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadImage();
   const [error, setError] = useState<string | null>(null);
+  // Vista previa local: se ve apenas se elige el archivo, sin esperar al backend.
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [broken, setBroken] = useState(false);
+
+  const src = localPreview ?? assetUrl(value);
+
+  // Al cambiar de imagen hay que reevaluar carga/error: si no, una rota deja el
+  // estado pegado y la siguiente nunca se muestra.
+  useEffect(() => {
+    setLoaded(false);
+    setBroken(false);
+  }, [src]);
+
+  // Libera el object URL de la vista previa local al reemplazarla o desmontar.
+  useEffect(
+    () => () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    },
+    [localPreview],
+  );
 
   async function pick(file?: File) {
     if (!file) return;
@@ -42,15 +64,37 @@ export function ImageUpload({
       setError('La imagen supera 5 MB. Usa una más liviana.');
       return;
     }
+    const preview = URL.createObjectURL(file);
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return preview;
+    });
     try {
       const res = await upload.mutateAsync(file);
       onChange(res.url);
     } catch (err) {
       setError(apiErrorMessage(err, 'No se pudo subir la imagen.'));
+      setLocalPreview(null);
     } finally {
       if (inputRef.current) inputRef.current.value = '';
     }
   }
+
+  function clear() {
+    setLocalPreview(null);
+    setError(null);
+    onChange('');
+  }
+
+  const frame: CSSProperties = {
+    position: 'relative',
+    height: previewHeight,
+    borderRadius: 'var(--r-md)',
+    overflow: 'hidden',
+    background: 'var(--surface-2)',
+    display: 'grid',
+    placeItems: 'center',
+  };
 
   return (
     <div className={s.field}>
@@ -61,34 +105,32 @@ export function ImageUpload({
         </span>
       )}
 
-      {value ? (
-        <img
-          src={value}
-          alt=""
-          style={{
-            width: '100%',
-            height: previewHeight,
-            objectFit: previewFit,
-            borderRadius: 'var(--r-md)',
-            border: '1px solid var(--border)',
-            background: 'var(--surface-2)',
-          }}
-        />
+      {src && !broken ? (
+        <div style={{ ...frame, border: '1px solid var(--border)' }}>
+          <img
+            src={src}
+            alt=""
+            onLoad={() => setLoaded(true)}
+            onError={() => setBroken(true)}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: previewFit,
+              // Aparece recién cargada: sin destello ni salto de layout.
+              opacity: loaded ? 1 : 0,
+              transition: 'opacity .2s ease',
+            }}
+          />
+          {(!loaded || upload.isPending) && (
+            <span className={s.spinner} style={{ position: 'absolute', width: 22, height: 22 }} />
+          )}
+        </div>
       ) : (
-        <div
-          style={{
-            display: 'grid',
-            placeItems: 'center',
-            gap: 4,
-            height: previewHeight,
-            borderRadius: 'var(--r-md)',
-            border: '1px dashed var(--border)',
-            color: 'var(--text-muted)',
-            background: 'var(--surface-2)',
-          }}
-        >
-          <Icon name="image" size={22} />
-          <span style={{ fontSize: 'var(--fs-sm)' }}>Sin imagen</span>
+        <div style={{ ...frame, gap: 4, border: '1px dashed var(--border)', color: 'var(--text-muted)' }}>
+          <Icon name={broken ? 'alert' : 'image'} size={22} />
+          <span style={{ fontSize: 'var(--fs-sm)', textAlign: 'center', padding: '0 var(--sp-2)' }}>
+            {broken ? 'No se pudo cargar la imagen guardada' : 'Sin imagen'}
+          </span>
         </div>
       )}
 
@@ -109,10 +151,10 @@ export function ImageUpload({
           loading={upload.isPending}
           onClick={() => inputRef.current?.click()}
         >
-          {value ? 'Cambiar imagen' : 'Subir imagen'}
+          {src ? 'Cambiar imagen' : 'Subir imagen'}
         </Button>
-        {value && (
-          <Button type="button" variant="subtle" size="sm" onClick={() => onChange('')}>
+        {src && (
+          <Button type="button" variant="subtle" size="sm" onClick={clear}>
             Quitar
           </Button>
         )}
