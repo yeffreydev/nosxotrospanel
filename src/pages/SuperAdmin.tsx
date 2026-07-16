@@ -4,6 +4,11 @@ import { formatSoles } from '../lib/format';
 
 const SA_KEY = 'nx_sa_token';
 
+// Misma base que el cliente axios (lib/api.ts): sin VITE_API_URL usa el proxy
+// de Vite; publicado apunta al backend. Con "/api" fijo, el host estático
+// reescribe a index.html y el POST responde 405.
+const SA_BASE = `${import.meta.env.VITE_API_URL || '/api'}/superadmin`;
+
 interface Organizer {
   id: string;
   fullName: string;
@@ -26,7 +31,7 @@ interface SaCampaign {
 }
 
 async function saFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/superadmin${path}`, {
+  const res = await fetch(`${SA_BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -81,7 +86,7 @@ function LoginView({ onToken }: { onToken: (t: string) => void }) {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/superadmin/login', {
+      const res = await fetch(`${SA_BASE}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
