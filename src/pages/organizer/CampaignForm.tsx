@@ -212,7 +212,10 @@ export default function CampaignForm() {
   const firstError = Object.values(errors).find(Boolean) ?? '';
   const err = (field: string) => (showErrors ? errors[field] || undefined : undefined);
 
-  function buildBody(status: 'DRAFT' | 'ACTIVE'): CreateCampaignBody {
+  // Sin `status` el PATCH no lo toca. Al editar se omite a propósito: el estado
+  // se cambia desde Ajustes, y mandarlo aquí republicaba en silencio una campaña
+  // pausada o cancelada solo por guardar un cambio de texto.
+  function buildBody(status?: 'DRAFT' | 'ACTIVE'): CreateCampaignBody {
     return {
       title: title.trim(),
       summary: summary.trim(),
@@ -228,7 +231,7 @@ export default function CampaignForm() {
       bankAccount: bankAccount.trim() || undefined,
       accountHolder: accountHolder.trim() || undefined,
       qrImageUrl: qrImageUrl.trim() || undefined,
-      status,
+      ...(status ? { status } : {}),
     };
   }
 
@@ -250,7 +253,7 @@ export default function CampaignForm() {
     }
   }
 
-  async function save(status: 'DRAFT' | 'ACTIVE') {
+  async function save(status?: 'DRAFT' | 'ACTIVE') {
     setShowErrors(true);
     if (firstError) {
       setError(firstError);
@@ -515,7 +518,14 @@ export default function CampaignForm() {
           los campos que faltan. Un botón muerto sin explicación deja al
           organizador sin saber qué corregir. */}
       <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-        <Button block size="lg" variant="gold" icon="spark" loading={busy} onClick={() => save('ACTIVE')}>
+        <Button
+          block
+          size="lg"
+          variant="gold"
+          icon="spark"
+          loading={busy}
+          onClick={() => save(isEdit ? undefined : 'ACTIVE')}
+        >
           {isEdit ? t('common.save') : t('camp.publish')}
         </Button>
         {!isEdit && (

@@ -266,20 +266,32 @@ export interface Zone {
   dispatches?: ZoneDispatch[];
 }
 
-/** Voluntario inscrito en una campaña (vista del organizador). */
+/**
+ * Voluntario inscrito en una campaña (vista del organizador).
+ *
+ * Puede no tener cuenta: quien ofrece voluntariado desde la web pública entra
+ * como invitado (`isGuest`), con `volunteerId` y `user` en null. Sin perfil no
+ * puede entrar a una brigada ni registrar horarios. `fullName`/`email`/`phone`
+ * ya vienen resueltos por el backend, venga de una cuenta o del formulario.
+ */
 export interface CampaignVolunteer {
   id: string;
-  volunteerId: string;
+  volunteerId: string | null;
+  isGuest: boolean;
+  donationId?: string | null;
   skills: string[];
   note?: string | null;
   createdAt: string;
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
   user: {
     id: string;
     fullName: string;
     email: string;
     phone?: string | null;
     avatarUrl?: string | null;
-  };
+  } | null;
   brigade?: { memberId: string; id: string; name: string; role?: string | null } | null;
 }
 

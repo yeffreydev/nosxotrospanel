@@ -130,6 +130,7 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
   const [campaigns, setCampaigns] = useState<SaCampaign[]>([]);
   const [error, setError] = useState('');
   const [toDelete, setToDelete] = useState<SaCampaign | null>(null);
+  const [toUnverify, setToUnverify] = useState<Organizer | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -155,6 +156,34 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
   const verify = async (id: string) => {
     try {
       await saFetch(`/organizers/${id}/verify`, token, { method: 'POST', body: '{}' });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error');
+    }
+  };
+
+  const doUnverify = async () => {
+    if (!toUnverify) return;
+    setBusy(true);
+    try {
+      await saFetch(`/organizers/${toUnverify.id}/verify`, token, { method: 'DELETE' });
+      setToUnverify(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Publicada = cualquier estado menos DRAFT, que es el único que el listado
+  // público oculta. Publicar la pone ACTIVE; despublicar, DRAFT.
+  const setPublished = async (c: SaCampaign, published: boolean) => {
+    try {
+      await saFetch(`/campaigns/${c.id}/published`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ published }),
+      });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error');
@@ -192,7 +221,10 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
         {organizers.map((o) => {
-          const verified = o.organization?.verified || o.emailVerified;
+          // Con organización manda su verificación: quitarla deja emailVerified
+          // intacto, así que mirarlo también dejaría la fila "Verificada" para
+          // siempre. Sin organización solo queda el correo como señal.
+          const verified = o.organization ? o.organization.verified : o.emailVerified;
           return (
             <Card key={o.id}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
@@ -204,7 +236,14 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
                     {o.organization ? ` · ${o.organization.name} (RUC ${o.organization.ruc ?? '—'})` : ' · sin organización'}
                   </div>
                 </div>
-                {!verified && (
+                {verified ? (
+                  // Solo se puede quitar la verificación de una organización.
+                  o.organization && (
+                    <Button size="sm" variant="ghost" icon="close" onClick={() => setToUnverify(o)}>
+                      Quitar verificación
+                    </Button>
+                  )
+                ) : (
                   <Button size="sm" icon="check" onClick={() => verify(o.id)}>Verificar</Button>
                 )}
               </div>
@@ -219,21 +258,50 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
         <Icon name="spark" size={18} /> Campañas ({campaigns.length})
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-        {campaigns.map((c) => (
-          <Card key={c.id}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
-              <div>
-                <strong>{c.title}</strong> <Badge tone="neutral">{c.status}</Badge>
-                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                  {c.organizer?.fullName ?? '—'} · {formatSoles(c.raisedAmount)} · {c.backersCount} donantes · {c.donationsCount} donaciones · {c.zonesCount} zonas
+        {campaigns.map((c) => {
+          const published = c.status !== 'DRAFT';
+          return (
+            <Card key={c.id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <div>
+                  <strong>{c.title}</strong> <Badge tone="neutral">{c.status}</Badge>{' '}
+                  {published ? <Badge tone="success" dot>Publicada</Badge> : <Badge tone="warn" dot>No publicada</Badge>}
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                    {c.organizer?.fullName ?? '—'} · {formatSoles(c.raisedAmount)} · {c.backersCount} donantes · {c.donationsCount} donaciones · {c.zonesCount} zonas
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 'var(--sp-2)', flexShrink: 0 }}>
+                  <Button
+                    size="sm"
+                    variant={published ? 'ghost' : 'primary'}
+                    icon={published ? 'close' : 'globe'}
+                    onClick={() => setPublished(c, !published)}
+                  >
+                    {published ? 'Despublicar' : 'Publicar'}
+                  </Button>
+                  <Button size="sm" variant="danger" icon="close" onClick={() => setToDelete(c)}>Eliminar</Button>
                 </div>
               </div>
-              <Button size="sm" variant="danger" icon="close" onClick={() => setToDelete(c)}>Eliminar</Button>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
         {campaigns.length === 0 && <p style={{ color: 'var(--text-muted)' }}>Sin campañas.</p>}
       </div>
+
+      <ConfirmDialog
+        open={!!toUnverify}
+        title="Quitar verificación"
+        message={
+          toUnverify
+            ? `¿Quitar la verificación de "${toUnverify.organization?.name ?? toUnverify.fullName}"? La organización volverá a aparecer como pendiente. Puedes verificarla de nuevo cuando quieras.`
+            : undefined
+        }
+        confirmLabel="Quitar verificación"
+        cancelLabel="Cancelar"
+        loading={busy}
+        onConfirm={doUnverify}
+        onCancel={() => setToUnverify(null)}
+      />
 
       <ConfirmDialog
         open={!!toDelete}

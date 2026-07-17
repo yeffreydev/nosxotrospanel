@@ -8,6 +8,7 @@ import type {
   BeneficiarySyncResult,
   Brigade,
   Campaign,
+  CampaignStatus,
   CampaignOperations,
   CampaignUpdate,
   CampaignVolunteer,
@@ -339,8 +340,15 @@ export function useCreateCampaign() {
 export function useUpdateCampaign() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Partial<CreateCampaignBody> & { status?: string } }) =>
-      api.patch<Campaign>(`/campaigns/${id}`, body).then((r) => r.data),
+    // El alta solo ofrece DRAFT/ACTIVE, pero editando se pasa por todos los
+    // estados (pausar, cerrar, cancelar), así que aquí se acepta el enum entero.
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: Omit<Partial<CreateCampaignBody>, 'status'> & { status?: CampaignStatus };
+    }) => api.patch<Campaign>(`/campaigns/${id}`, body).then((r) => r.data),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['campaigns'] });
       qc.invalidateQueries({ queryKey: ['campaign', v.id] });

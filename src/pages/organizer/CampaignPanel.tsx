@@ -57,12 +57,14 @@ import {
   useCampaignCollaborators,
   useAddCollaborator,
   useRemoveCollaborator,
+  useUpdateCampaign,
 } from '../../hooks/api';
 import { useT } from '../../lib/i18n';
 import { apiErrorMessage } from '../../lib/api';
-import { formatSoles, NEED_UNITS } from '../../lib/format';
+import { formatSoles, NEED_UNITS, CAMPAIGN_STATUS } from '../../lib/format';
 import type {
   Severity,
+  CampaignStatus,
   CampaignOperations,
   Campaign,
   Zone,
@@ -459,7 +461,9 @@ function Brigadas({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const brigades = brigadesQ.data ?? [];
   const volunteers = volunteersQ.data ?? [];
   // Solo se puede sumar a una brigada a un voluntario inscrito y todavía sin brigada.
-  const freeVolunteers = volunteers.filter((v) => !v.brigade);
+  // Solo los que tienen perfil: una brigada se arma con voluntarios con cuenta,
+  // así que los invitados de la web no son elegibles.
+  const freeVolunteers = volunteers.filter((v) => !v.brigade && v.volunteerId);
 
   const save = () => {
     if (!editing) return;
@@ -549,7 +553,7 @@ function Brigadas({ id, ops }: { id?: string; ops: CampaignOperations }) {
               </div>
               <AddMemberInline
                 label={t('ops.addMember')}
-                volunteers={freeVolunteers.map((v) => ({ value: v.volunteerId, label: v.user.fullName }))}
+                volunteers={freeVolunteers.map((v) => ({ value: v.volunteerId!, label: v.fullName }))}
                 loading={addMember.isPending}
                 onAdd={(volunteerId, role) =>
                   run(() => addMember.mutateAsync({ brigadeId: b.id, body: { volunteerId, role: role || undefined } }))
@@ -996,10 +1000,11 @@ function Voluntarios({ id }: { id?: string }) {
             <Card key={v.id}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
                 <div>
-                  <strong>{v.user.fullName}</strong>
+                  <strong>{v.fullName}</strong>{' '}
+                  {v.isGuest && <Badge tone="warn">Sin cuenta</Badge>}
                   <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
-                    {v.user.email}
-                    {v.user.phone ? ` · 📞 ${v.user.phone}` : ''}
+                    {v.email ?? 'sin correo'}
+                    {v.phone ? ` · 📞 ${v.phone}` : ''}
                   </div>
                   {v.skills.length > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
@@ -1007,29 +1012,39 @@ function Voluntarios({ id }: { id?: string }) {
                     </div>
                   )}
                   {v.note && <div style={{ fontSize: 'var(--fs-sm)', marginTop: 4 }}>{v.note}</div>}
+                  {v.isGuest && (
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 4 }}>
+                      Se ofreció desde la web. Contáctalo para que cree su cuenta y así
+                      puedas sumarlo a una brigada.
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon="clock"
-                    aria-label={t('ops.registerVolunteer')}
-                    onClick={() => setScheduleFor({ volunteerId: v.volunteerId, name: v.user.fullName })}
-                  >
-                    {t('ops.registerVolunteer')}
-                  </Button>
+                  {/* Horarios y brigadas cuelgan del perfil de voluntario: un
+                      invitado no tiene, así que no se le pueden registrar. */}
+                  {v.volunteerId && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon="clock"
+                      aria-label={t('ops.registerVolunteer')}
+                      onClick={() => setScheduleFor({ volunteerId: v.volunteerId!, name: v.fullName })}
+                    >
+                      {t('ops.registerVolunteer')}
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
                     icon="close"
                     aria-label="Quitar de la campaña"
-                    onClick={() => setToRemove({ volunteerId: v.volunteerId, name: v.user.fullName })}
+                    onClick={() => setToRemove({ volunteerId: v.volunteerId ?? v.id, name: v.fullName })}
                   />
                 </div>
               </div>
 
               <div style={{ marginTop: 'var(--sp-2)', display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                {v.brigade ? (
+                {!v.volunteerId ? null : v.brigade ? (
                   <>
                     <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{t('ops.brigades')}:</span>
                     <Badge tone="success">{v.brigade.name}</Badge>
@@ -1055,7 +1070,7 @@ function Voluntarios({ id }: { id?: string }) {
                       onChange={(e) => {
                         const brigadeId = e.target.value;
                         if (brigadeId) {
-                          run(() => addMember.mutateAsync({ brigadeId, body: { volunteerId: v.volunteerId } }));
+                          run(() => addMember.mutateAsync({ brigadeId, body: { volunteerId: v.volunteerId! } }));
                         }
                       }}
                       options={[
@@ -1654,10 +1669,85 @@ function EnrollModal({ campaignId, emergencyId, ops, onClose }: {
 }
 
 /* ───────── Ajustes ───────── */
+
+// Estados que el organizador decide. FUNDED no está: lo pone el sistema solo al
+// alcanzar la meta, así que solo se ofrece si la campaña ya está ahí.
+const MANAGER_STATUSES: { value: CampaignStatus; label: string }[] = [
+  { value: 'DRAFT', label: 'No publicada — borrador' },
+  { value: 'ACTIVE', label: 'Publicada — recaudando' },
+  { value: 'PAUSED', label: 'Pausada — visible, sin recibir aportes' },
+  { value: 'COMPLETED', label: 'Cerrada con éxito' },
+  { value: 'CANCELLED', label: 'Cancelada' },
+];
+
+function EstadoCampana({ campaign }: { campaign: Campaign }) {
+  const update = useUpdateCampaign();
+  const toast = useToast();
+  const [status, setStatus] = useState<CampaignStatus>(campaign.status);
+  const [error, setError] = useState('');
+
+  // Si la campaña cambia por fuera (otra pestaña, meta alcanzada), sigue al dato.
+  useEffect(() => setStatus(campaign.status), [campaign.status]);
+
+  const options = MANAGER_STATUSES.some((s) => s.value === campaign.status)
+    ? MANAGER_STATUSES
+    : [...MANAGER_STATUSES, { value: campaign.status, label: CAMPAIGN_STATUS[campaign.status].label }];
+
+  const dirty = status !== campaign.status;
+  const willHide = status === 'DRAFT';
+
+  const save = async () => {
+    setError('');
+    try {
+      await update.mutateAsync({ id: campaign.id, body: { status } });
+      toast.success(willHide ? 'Campaña despublicada' : 'Estado actualizado');
+    } catch (err) {
+      setError(apiErrorMessage(err));
+      setStatus(campaign.status);
+    }
+  };
+
+  return (
+    <Card>
+      <div style={{ fontWeight: 'var(--fw-bold)', marginBottom: 'var(--sp-2)' }}>
+        Estado de la campaña
+      </div>
+      <div style={{ marginBottom: 'var(--sp-2)' }}>
+        <StatusBadge status={campaign.status} />{' '}
+        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+          {campaign.status === 'DRAFT'
+            ? 'No aparece en el sitio público.'
+            : 'Visible en el sitio público.'}
+        </span>
+      </div>
+      {error && <div style={{ marginBottom: 'var(--sp-2)' }}><Banner tone="error" title="Error">{error}</Banner></div>}
+      <Select
+        label="Cambiar estado"
+        value={status}
+        onChange={(e) => setStatus(e.target.value as CampaignStatus)}
+        options={options}
+      />
+      {dirty && willHide && (
+        <div style={{ marginTop: 'var(--sp-2)' }}>
+          <Banner tone="warn" title="Se quitará del sitio público">
+            Nadie podrá verla ni donar hasta que la vuelvas a publicar.
+          </Banner>
+        </div>
+      )}
+      <div style={{ marginTop: 'var(--sp-2)' }}>
+        <Button icon="check" onClick={save} disabled={!dirty} loading={update.isPending}>
+          Guardar estado
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function Ajustes({ campaign, onEdit }: { campaign: Campaign; onEdit: () => void }) {
   const t = useT();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+      <EstadoCampana campaign={campaign} />
       <Card>
         <div style={{ fontWeight: 'var(--fw-bold)', marginBottom: 'var(--sp-2)' }}>{t('camp.payInfo')}</div>
         <div style={{ fontSize: 'var(--fs-sm)', display: 'grid', gap: 4 }}>
