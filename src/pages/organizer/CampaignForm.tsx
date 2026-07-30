@@ -26,6 +26,8 @@ import { useGeolocation } from '../../hooks/useGeolocation';
 import { useT } from '../../lib/i18n';
 import { apiErrorMessage } from '../../lib/api';
 import { CAMPAIGN_CATEGORY } from '../../lib/format';
+import { AQP, coordsFromMapUrl, isHttpUrl, loadPeruUbigeo, mapUrlFromCoords } from '../../lib/geo';
+import type { PeruUbigeo } from '../../lib/geo';
 import type { CampaignCategory } from '../../lib/types';
 
 const CATEGORY_OPTIONS = (Object.entries(CAMPAIGN_CATEGORY) as [CampaignCategory, { label: string; icon: string }][]).map(
@@ -42,39 +44,6 @@ const SKILLS: { value: string; label: string }[] = [
   { value: 'COMMS', label: 'Comunicación' },
   { value: 'GENERAL', label: 'General' },
 ];
-
-// Coordenadas por defecto (centro de Arequipa) si no se geolocaliza.
-const AQP = { lat: -16.409, lng: -71.537 };
-
-// Extrae lat/lng de un enlace de mapa pegado por el organizador. Cubre los
-// formatos de Google Maps (@lat,lng / !3dlat!4dlng / ?q=lat,lng) y los de Waze
-// y OSM (?ll= / #map=z/lat/lng). Si no coincide, se conserva el enlace igual:
-// sirve para abrir la ruta aunque no podamos ubicar el pin en nuestro mapa.
-function coordsFromMapUrl(url: string): { lat: number; lng: number } | null {
-  const patterns = [
-    /@(-?\d+\.\d+),(-?\d+\.\d+)/, // google: /@-16.4,-71.5,17z
-    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/, // google: place data
-    /[?&](?:q|query|ll|sll|daddr)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/, // google/waze: ?q= / ?query= / ?ll=
-    /#map=\d+\/(-?\d+\.\d+)\/(-?\d+\.\d+)/, // osm: #map=15/lat/lng
-  ];
-  for (const re of patterns) {
-    const m = url.match(re);
-    if (m) {
-      const lat = Number(m[1]);
-      const lng = Number(m[2]);
-      if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
-    }
-  }
-  return null;
-}
-
-function isHttpUrl(value: string): boolean {
-  try {
-    return /^https?:$/.test(new URL(value).protocol);
-  } catch {
-    return false;
-  }
-}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -106,20 +75,34 @@ export default function CampaignForm() {
   const [story, setStory] = useState('');
   const [category, setCategory] = useState<CampaignCategory>('COMMUNITY');
   const [coverPhoto, setCoverPhoto] = useState('');
-  const [district, setDistrict] = useState('');
   const [deadline, setDeadline] = useState('');
 
-  // Meta opcional
-  const [hasGoal, setHasGoal] = useState(true);
+  // Meta de recaudación (obligatoria, mínimo 10,000 soles)
+  const MIN_GOAL = 10000;
   const [goalAmount, setGoalAmount] = useState<number | ''>('');
+
+  // Ubicación de la campaña: con ella el backend crea la "zona principal".
+  // Región/provincia/distrito se eligen de un selector (no texto libre); se
+  // guardan como código mientras se edita y se traducen a nombre recién al
+  // enviar, porque el backend solo entiende el nombre en texto plano.
+  const [ubigeo, setUbigeo] = useState<PeruUbigeo | null>(null);
+  const [regionCode, setRegionCode] = useState('');
+  const [provinciaCode, setProvinciaCode] = useState('');
+  const [distritoCode, setDistritoCode] = useState('');
+  const [address, setAddress] = useState('');
+  const [mapUrl, setMapUrl] = useState('');
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [coordsSource, setCoordsSource] = useState<'gps' | 'link' | null>(null);
 
   // Voluntarios que busca
   const [skills, setSkills] = useState<string[]>([]);
+  const [volunteerGoal, setVolunteerGoal] = useState<number | ''>('');
 
   // Información de pago (Yape / depósito bancario)
   const [yapeNumber, setYapeNumber] = useState('');
   const [bankName, setBankName] = useState('');
   const [bankAccount, setBankAccount] = useState('');
+  const [cci, setCci] = useState('');
   const [accountHolder, setAccountHolder] = useState('');
   const [qrImageUrl, setQrImageUrl] = useState('');
 
@@ -128,15 +111,36 @@ export default function CampaignForm() {
   const [centerName, setCenterName] = useState('');
   const [centerAddress, setCenterAddress] = useState('');
   const [centerMapUrl, setCenterMapUrl] = useState('');
-  const [centerCoords, setCenterCoords] = useState<{ lat: number; lng: number } | null>(null);
-  // De dónde salieron las coordenadas: lo mostramos para que el organizador
-  // sepa si el pin es real o el de Arequipa por defecto.
-  const [coordsSource, setCoordsSource] = useState<'gps' | 'link' | null>(null);
+  const [centerPhoto, setCenterPhoto] = useState('');
+  // Por defecto el centro está en la misma ubicación que la campaña: es lo
+  // normal y evita pedir dos veces el mismo enlace.
+  const [centerSameLocation, setCenterSameLocation] = useState(true);
 
   const [error, setError] = useState('');
   // Los errores por campo aparecen recién al intentar guardar: no tiene sentido
   // marcar en rojo un formulario que el organizador aún no llenó.
   const [showErrors, setShowErrors] = useState(false);
+
+  useEffect(() => {
+    loadPeruUbigeo().then(setUbigeo);
+  }, []);
+
+  // La campaña guarda región/provincia/distrito como nombre (texto), pero el
+  // selector trabaja con códigos: recién con el árbol cargado se puede buscar
+  // a qué código corresponde cada nombre guardado.
+  useEffect(() => {
+    if (!existing || !ubigeo) return;
+    const region = ubigeo.regiones.find((r) => r.name === existing.region);
+    const provincia = ubigeo.provincias.find(
+      (p) => p.name === existing.province && (!region || p.region === region.code),
+    );
+    const distrito = ubigeo.distritos.find(
+      (d) => d.name === existing.district && (!provincia || d.province === provincia.code),
+    );
+    setRegionCode(region?.code ?? '');
+    setProvinciaCode(provincia?.code ?? '');
+    setDistritoCode(distrito?.code ?? '');
+  }, [existing, ubigeo]);
 
   useEffect(() => {
     if (existing) {
@@ -145,14 +149,20 @@ export default function CampaignForm() {
       setStory(existing.story);
       setCategory(existing.category);
       setCoverPhoto(existing.coverPhoto ?? '');
-      setDistrict(existing.district ?? '');
       setDeadline(existing.deadline ? existing.deadline.slice(0, 10) : '');
-      setHasGoal(existing.goalAmount != null);
       setGoalAmount(existing.goalAmount ?? '');
       setSkills(existing.volunteerSkills ?? []);
+      setVolunteerGoal(existing.volunteerGoal ?? '');
+      setAddress(existing.address ?? '');
+      setMapUrl(existing.mapUrl ?? '');
+      if (existing.lat != null && existing.lng != null) {
+        setCoords({ lat: existing.lat, lng: existing.lng });
+        setCoordsSource('link');
+      }
       setYapeNumber(existing.yapeNumber ?? '');
       setBankName(existing.bankName ?? '');
       setBankAccount(existing.bankAccount ?? '');
+      setCci(existing.cci ?? '');
       setAccountHolder(existing.accountHolder ?? '');
       setQrImageUrl(existing.qrImageUrl ?? '');
     }
@@ -162,16 +172,36 @@ export default function CampaignForm() {
     setSkills((s) => (s.includes(v) ? s.filter((x) => x !== v) : [...s, v]));
   }
 
+  // Provincia depende de la región elegida; distrito depende de la provincia.
+  // Al cambiar un nivel se limpian los de abajo: si no, quedaría un distrito
+  // de una región que ya no es la seleccionada.
+  const regionOptions = (ubigeo?.regiones ?? []).map((r) => ({ value: r.code, label: r.name }));
+  const provinciaOptions = (ubigeo?.provincias ?? [])
+    .filter((p) => p.region === regionCode)
+    .map((p) => ({ value: p.code, label: p.name }));
+  const distritoOptions = (ubigeo?.distritos ?? [])
+    .filter((d) => d.province === provinciaCode)
+    .map((d) => ({ value: d.code, label: d.name }));
+
+  function onRegionChange(value: string) {
+    setRegionCode(value);
+    setProvinciaCode('');
+    setDistritoCode('');
+  }
+
+  function onProvinciaChange(value: string) {
+    setProvinciaCode(value);
+    setDistritoCode('');
+  }
+
   async function useMyLocation() {
     try {
       const c = await geo.locate();
-      setCenterCoords(c);
+      setCoords(c);
       setCoordsSource('gps');
       // Sin enlace propio, generamos uno con las coordenadas: el donante abre
       // la ruta en su app y el organizador puede verificar el pin.
-      if (!centerMapUrl.trim()) {
-        setCenterMapUrl(`https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`);
-      }
+      if (!mapUrl.trim()) setMapUrl(mapUrlFromCoords(c.lat, c.lng));
       toast.success('Ubicación capturada');
     } catch {
       toast.warn('No se pudo obtener tu ubicación. Escribe la dirección o pega un enlace del mapa.');
@@ -179,14 +209,14 @@ export default function CampaignForm() {
   }
 
   function onMapUrlChange(value: string) {
-    setCenterMapUrl(value);
+    setMapUrl(value);
     const parsed = coordsFromMapUrl(value);
     if (parsed) {
-      setCenterCoords(parsed);
+      setCoords(parsed);
       setCoordsSource('link');
     } else if (coordsSource === 'link') {
       // El enlace del que salieron las coordenadas ya no está: dejan de ser válidas.
-      setCenterCoords(null);
+      setCoords(null);
       setCoordsSource(null);
     }
   }
@@ -194,21 +224,26 @@ export default function CampaignForm() {
   // Un error por campo. Vacío = campo correcto. Sustituye al antiguo booleano
   // `valid`, que deshabilitaba el botón sin decir qué faltaba.
   const storyLeft = 20 - story.trim().length;
-  const errors: Record<string, string> = {
-    title: title.trim().length < 4 ? 'El título necesita al menos 4 caracteres.' : '',
-    summary: summary.trim().length < 10 ? 'El resumen necesita al menos 10 caracteres.' : '',
-    story: storyLeft > 0 ? `La historia necesita ${storyLeft} caracteres más (mínimo 20).` : '',
-    goalAmount:
-      hasGoal && !(typeof goalAmount === 'number' && goalAmount > 0)
-        ? 'Escribe un monto mayor a 0 o desmarca "Fijar una meta".'
-        : '',
-    centerName: addCenter && centerName.trim().length < 2 ? 'Ponle un nombre al centro.' : '',
-    centerAddress: addCenter && centerAddress.trim().length < 2 ? 'Escribe la dirección del centro.' : '',
-    centerMapUrl:
-      addCenter && centerMapUrl.trim() && !isHttpUrl(centerMapUrl.trim())
-        ? 'Pega un enlace completo, empezando con https://'
-        : '',
-  };
+const errors: Record<string, string> = {
+  title: title.trim().length < 4 ? 'El título necesita al menos 4 caracteres.' : '',
+  summary: summary.trim().length < 10 ? 'El resumen necesita al menos 10 caracteres.' : '',
+  story: storyLeft > 0 ? `La historia necesita ${storyLeft} caracteres más (mínimo 20).` : '',
+  goalAmount: !(typeof goalAmount === 'number' && goalAmount > MIN_GOAL)
+    ? `La meta de recaudación debe ser al menos ${MIN_GOAL} Soles`
+    : '',
+  mapUrl: mapUrl.trim() && !isHttpUrl(mapUrl.trim())
+    ? 'Pega un enlace completo del mapa, empezando con https://'
+    : '',
+  volunteerGoal: volunteerGoal !== '' && !(typeof volunteerGoal === 'number' && volunteerGoal > 0)
+    ? 'La meta de voluntarios debe ser mayor a 0.'
+    : '',
+  centerName: addCenter && centerName.trim().length < 2 ? 'Ponle un nombre al centro.' : '',
+  centerAddress: addCenter && centerAddress.trim().length < 2 ? 'Escribe la dirección del centro.' : '',
+  centerMapUrl:
+    addCenter && !centerSameLocation && centerMapUrl.trim() && !isHttpUrl(centerMapUrl.trim())
+      ? 'Pega un enlace completo, empezando con https://'
+      : '',
+};
   const firstError = Object.values(errors).find(Boolean) ?? '';
   const err = (field: string) => (showErrors ? errors[field] || undefined : undefined);
 
@@ -221,14 +256,22 @@ export default function CampaignForm() {
       summary: summary.trim(),
       story: story.trim(),
       category,
-      goalAmount: hasGoal && typeof goalAmount === 'number' ? goalAmount : undefined,
+      goalAmount: typeof goalAmount === 'number' ? goalAmount : MIN_GOAL,
       volunteerSkills: skills.length ? skills : undefined,
+      volunteerGoal: typeof volunteerGoal === 'number' && volunteerGoal > 0 ? volunteerGoal : undefined,
       deadline: deadline ? new Date(deadline).toISOString() : undefined,
-      district: district.trim() || undefined,
+      region: ubigeo?.regiones.find((r) => r.code === regionCode)?.name,
+      province: ubigeo?.provincias.find((p) => p.code === provinciaCode)?.name,
+      district: ubigeo?.distritos.find((d) => d.code === distritoCode)?.name,
+      address: address.trim() || undefined,
+      mapUrl: mapUrl.trim() || undefined,
+      lat: coords?.lat,
+      lng: coords?.lng,
       coverPhoto: coverPhoto.trim() || undefined,
       yapeNumber: yapeNumber.trim() || undefined,
       bankName: bankName.trim() || undefined,
       bankAccount: bankAccount.trim() || undefined,
+      cci: cci.trim() || undefined,
       accountHolder: accountHolder.trim() || undefined,
       qrImageUrl: qrImageUrl.trim() || undefined,
       ...(status ? { status } : {}),
@@ -237,14 +280,17 @@ export default function CampaignForm() {
 
   async function maybeCreateCenter(campaignId: string) {
     if (isEdit || !addCenter) return;
-    const coords = centerCoords ?? AQP;
+    const link = centerSameLocation ? mapUrl.trim() : centerMapUrl.trim();
+    const centerCoords =
+      (centerSameLocation ? coords : coordsFromMapUrl(centerMapUrl.trim())) ?? coords ?? AQP;
     try {
       await createCenter.mutateAsync({
         name: centerName.trim(),
         address: centerAddress.trim(),
-        mapUrl: centerMapUrl.trim() || undefined,
-        lat: coords.lat,
-        lng: coords.lng,
+        mapUrl: link && isHttpUrl(link) ? link : undefined,
+        photoUrl: centerPhoto.trim() || undefined,
+        lat: centerCoords.lat,
+        lng: centerCoords.lng,
         campaignId,
       });
     } catch {
@@ -337,44 +383,121 @@ export default function CampaignForm() {
           value={coverPhoto}
           onChange={setCoverPhoto}
         />
-        <div style={{ display: 'grid', gap: 'var(--sp-4)', gridTemplateColumns: '1fr 1fr' }}>
-          <Input
-            label={t('camp.fieldDeadline')}
-            hint={t('common.optional')}
-            type="date"
-            value={deadline}
-            onChange={(e) => setDeadline(e.target.value)}
-          />
-          <Input
-            label={t('camp.fieldDistrict')}
-            hint={t('common.optional')}
-            placeholder="Yura"
-            value={district}
-            onChange={(e) => setDistrict(e.target.value)}
-          />
-        </div>
+        <Input
+          label={t('camp.fieldDeadline')}
+          hint={t('common.optional')}
+          type="date"
+          value={deadline}
+          onChange={(e) => setDeadline(e.target.value)}
+        />
       </Section>
 
-      {/* 2. Meta (opcional) */}
-      <Section title="Meta de recaudación" hint="Tu campaña puede tener una meta o quedar abierta sin monto fijo.">
-        <Checkbox checked={hasGoal} onChange={setHasGoal}>
-          Fijar una meta de recaudación
-        </Checkbox>
-        {hasGoal && (
-          <Input
-            required
-            label={t('camp.fieldGoal')}
-            hint="mayor a 0"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            prefix="S/"
-            placeholder="8000"
-            value={goalAmount}
-            error={err('goalAmount')}
-            onChange={(e) => setGoalAmount(e.target.value === '' ? '' : Number(e.target.value))}
+      {/* 2. Ubicación: se convierte en la zona principal de la campaña */}
+      <Section
+        title="¿Dónde se trabaja?"
+        hint="Elige región, provincia y distrito, y con esta ubicación se crea sola la zona principal de tu campaña, donde luego despachas la ayuda."
+      >
+        <div style={{ display: 'grid', gap: 'var(--sp-4)', gridTemplateColumns: '1fr 1fr 1fr' }}>
+          <Select
+            label="Región"
+            hint={t('common.optional')}
+            placeholder={ubigeo ? 'Elige región' : 'Cargando...'}
+            options={regionOptions}
+            value={regionCode}
+            disabled={!ubigeo}
+            onChange={(e) => onRegionChange(e.target.value)}
           />
-        )}
+          <Select
+            label="Provincia"
+            hint={t('common.optional')}
+            placeholder={regionCode ? 'Elige provincia' : 'Elige región primero'}
+            options={provinciaOptions}
+            value={provinciaCode}
+            disabled={!regionCode}
+            onChange={(e) => onProvinciaChange(e.target.value)}
+          />
+          <Select
+            label="Distrito"
+            hint={t('common.optional')}
+            placeholder={provinciaCode ? 'Elige distrito' : 'Elige provincia primero'}
+            options={distritoOptions}
+            value={distritoCode}
+            disabled={!provinciaCode}
+            onChange={(e) => setDistritoCode(e.target.value)}
+          />
+        </div>
+        <Input
+          label="Dirección o referencia"
+          hint={t('common.optional')}
+          placeholder="Av. Principal 123, Yura · frente al mercado"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+        <Input
+          label="Enlace del mapa"
+          hint={t('common.optional')}
+          type="url"
+          inputMode="url"
+          placeholder="https://maps.google.com/..."
+          value={mapUrl}
+          error={err('mapUrl')}
+          onChange={(e) => onMapUrlChange(e.target.value)}
+        />
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button variant="subtle" size="sm" icon="location" loading={geo.loading} onClick={useMyLocation}>
+            Usar mi ubicación actual
+          </Button>
+          {mapUrl.trim() && isHttpUrl(mapUrl.trim()) && (
+            <a
+              href={mapUrl.trim()}
+              target="_blank"
+              rel="noreferrer noopener"
+              style={{
+                fontSize: 'var(--fs-sm)',
+                color: 'var(--brand-700)',
+                fontWeight: 'var(--fw-bold)',
+                display: 'inline-flex',
+                gap: 4,
+                alignItems: 'center',
+              }}
+            >
+              <Icon name="map" size={14} /> Abrir enlace
+            </a>
+          )}
+        </div>
+        <span
+          style={{
+            fontSize: 'var(--fs-sm)',
+            color: coords ? 'var(--text-muted)' : 'var(--warn-500)',
+            display: 'inline-flex',
+            gap: 4,
+            alignItems: 'center',
+          }}
+        >
+          <Icon name="pin" size={14} />
+          {coords
+            ? `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)} · ${
+                coordsSource === 'gps' ? 'tu ubicación' : 'del enlace'
+              }`
+            : 'Sin coordenadas: no habrá pin, pero el mapa zonifica el distrito elegido.'}
+        </span>
+      </Section>
+
+      {/* 2. Meta de recaudación (obligatoria) */}
+      <Section title="Meta de recaudación" hint="Tu campaña debe tener una meta mínima de 10,000 Soles.">
+        <Input
+          required
+          label={t('camp.fieldGoal')}
+          hint={`mínimo ${MIN_GOAL} Soles`}
+          type="number"
+          inputMode="numeric"
+          min={MIN_GOAL}
+          prefix="S/"
+          placeholder="10000"
+          value={goalAmount}
+          error={err('goalAmount')}
+          onChange={(e) => setGoalAmount(e.target.value === '' ? '' : Number(e.target.value))}
+        />
       </Section>
 
       {/* 3. Información de pago */}
@@ -403,6 +526,13 @@ export default function CampaignForm() {
           />
         </div>
         <Input
+          label={t('camp.cci')}
+          hint={t('common.optional')}
+          placeholder="002-191-001234567890-12"
+          value={cci}
+          onChange={(e) => setCci(e.target.value)}
+        />
+        <Input
           label={t('camp.accountHolder')}
           hint={t('common.optional')}
           placeholder="Nombre del titular de la cuenta"
@@ -420,7 +550,7 @@ export default function CampaignForm() {
       </Section>
 
       {/* 4. Voluntarios */}
-      <Section title="Voluntarios que buscas" hint="Opcional. Marca las habilidades que necesitas para tu campaña.">
+      <Section title="Voluntarios que buscas" hint="Opcional. Marca las habilidades que necesitas y cuántas personas.">
         <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
           {SKILLS.map((sk) => (
             <Chip key={sk.value} active={skills.includes(sk.value)} onClick={() => toggleSkill(sk.value)}>
@@ -428,6 +558,17 @@ export default function CampaignForm() {
             </Chip>
           ))}
         </div>
+        <Input
+          label="Meta de voluntarios"
+          hint={`${t('common.optional')} · cuántas personas necesitas`}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          placeholder="20"
+          value={volunteerGoal}
+          error={err('volunteerGoal')}
+          onChange={(e) => setVolunteerGoal(e.target.value === '' ? '' : Number(e.target.value))}
+        />
       </Section>
 
       {/* 5. Centro de acopio (opcional, solo al crear) */}
@@ -454,60 +595,40 @@ export default function CampaignForm() {
                 error={err('centerAddress')}
                 onChange={(e) => setCenterAddress(e.target.value)}
               />
+              <ImageUpload
+                label="Foto del centro"
+                hint={`${t('common.optional')} · así el donante reconoce el local al llegar`}
+                value={centerPhoto}
+                onChange={setCenterPhoto}
+                previewHeight={160}
+              />
 
               <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
-                <Input
-                  label="Enlace del mapa"
-                  hint={t('common.optional')}
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://maps.google.com/..."
-                  value={centerMapUrl}
-                  error={err('centerMapUrl')}
-                  onChange={(e) => onMapUrlChange(e.target.value)}
-                />
-                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
-                  Pega el enlace de Google Maps o Waze del centro, o comparte tu ubicación actual si
-                  estás ahí. Si el enlace trae coordenadas, el pin se ubica solo.
-                </p>
-                <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Button variant="subtle" size="sm" icon="location" loading={geo.loading} onClick={useMyLocation}>
-                    Usar mi ubicación actual
-                  </Button>
-                  {centerMapUrl.trim() && isHttpUrl(centerMapUrl.trim()) && (
-                    <a
-                      href={centerMapUrl.trim()}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      style={{
-                        fontSize: 'var(--fs-sm)',
-                        color: 'var(--brand-700)',
-                        fontWeight: 'var(--fw-bold)',
-                        display: 'inline-flex',
-                        gap: 4,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Icon name="map" size={14} /> Abrir enlace
-                    </a>
-                  )}
-                </div>
-                <span
-                  style={{
-                    fontSize: 'var(--fs-sm)',
-                    color: centerCoords ? 'var(--text-muted)' : 'var(--warn-500)',
-                    display: 'inline-flex',
-                    gap: 4,
-                    alignItems: 'center',
-                  }}
-                >
-                  <Icon name="pin" size={14} />
-                  {centerCoords
-                    ? `${centerCoords.lat.toFixed(4)}, ${centerCoords.lng.toFixed(4)} · ${
-                        coordsSource === 'gps' ? 'tu ubicación' : 'del enlace'
-                      }`
-                    : 'Sin coordenadas: el pin quedará en el centro de Arequipa.'}
-                </span>
+                <Checkbox checked={centerSameLocation} onChange={setCenterSameLocation}>
+                  Está en la misma ubicación de la campaña
+                </Checkbox>
+                {centerSameLocation ? (
+                  <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+                    Usará el enlace y el pin que pusiste arriba en «¿Dónde se trabaja?».
+                  </p>
+                ) : (
+                  <>
+                    <Input
+                      label="Enlace del mapa del centro"
+                      hint={t('common.optional')}
+                      type="url"
+                      inputMode="url"
+                      placeholder="https://maps.google.com/..."
+                      value={centerMapUrl}
+                      error={err('centerMapUrl')}
+                      onChange={(e) => setCenterMapUrl(e.target.value)}
+                    />
+                    <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+                      Pega el enlace de Google Maps o Waze del centro. Si trae coordenadas, el pin se
+                      ubica solo; si no, se usará el de la campaña.
+                    </p>
+                  </>
+                )}
               </div>
             </>
           )}

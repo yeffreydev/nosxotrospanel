@@ -568,7 +568,34 @@
   font-weight: var(--fw-semibold);
   pointer-events: none;
 }
-.inputAffix .control { padding-left: calc(var(--sp-4) + 24px); }
+/* Solo el campo que va DESPUÉS de un prefijo deja hueco a la izquierda: con el
+   selector antiguo, un campo con solo sufijo también quedaba desplazado. */
+.inputPrefix + .control { padding-left: calc(var(--sp-4) + 24px); }
+
+/* Sufijo: a diferencia del prefijo, es interactivo (ver contraseña), así que
+   recibe clics y el campo le deja hueco a la derecha para no pisar el texto. */
+.inputSuffix {
+  position: absolute;
+  right: var(--sp-2);
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+.controlWithSuffix { padding-right: calc(var(--sp-4) + 32px); }
+.inputSuffixBtn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.inputSuffixBtn:hover { background: var(--surface-3); color: var(--text); }
+.inputSuffixBtn:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
 
 /* ---------- NumberStepper ---------- */
 .stepper {

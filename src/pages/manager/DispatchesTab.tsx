@@ -18,10 +18,12 @@ import {
   useCreateDispatch,
   useUpdateDispatchStatus,
   useCenters,
+  useCampaignZones,
   useEmergencies,
 } from '../../hooks/api';
 import { useT } from '../../lib/i18n';
 import { apiErrorMessage } from '../../lib/api';
+import { NEED_UNITS } from '../../lib/format';
 import type { DispatchItem, DispatchStatus } from '../../lib/types';
 import s from './manager.module.css';
 
@@ -73,10 +75,27 @@ export function DispatchesTab() {
                 <strong>{d.fromCenter?.name ?? 'Centro'}</strong>
                 <StatusBadge status={d.status} />
               </div>
-              {d.destAddress && <div className={s.muted}>→ {d.destAddress}</div>}
+              {d.zone && (
+                <div className={s.muted}>
+                  → {d.zone.name}
+                  {d.zone.mapUrl && (
+                    <>
+                      {' · '}
+                      <a href={d.zone.mapUrl} target="_blank" rel="noreferrer noopener">
+                        ver en el mapa
+                      </a>
+                    </>
+                  )}
+                </div>
+              )}
+              {d.destAddress && <div className={s.muted}>{d.zone ? '' : '→ '}{d.destAddress}</div>}
               {d.driverName && <div className={s.muted}>Conductor: {d.driverName}</div>}
               <div className={s.muted} style={{ marginTop: 6 }}>
-                {d.items?.length ?? 0} ítems
+                {(d.items ?? []).length === 0
+                  ? '0 ítems'
+                  : (d.items ?? [])
+                      .map((it) => `${it.description} ${it.quantity}${it.unit ? ` ${it.unit}` : ''}`)
+                      .join(' · ')}
               </div>
               {NEXT_STATUS[d.status] && (
                 <div className={s.cardActions}>
@@ -108,15 +127,28 @@ function DispatchForm({ onClose }: { onClose: () => void }) {
   const { data: emergencies } = useEmergencies();
   const [fromCenterId, setFromCenterId] = useState('');
   const [emergencyId, setEmergencyId] = useState('');
+  const [zoneId, setZoneId] = useState('');
   const [destAddress, setDestAddress] = useState('');
   const [driverName, setDriverName] = useState('');
-  const [items, setItems] = useState<DispatchItem[]>([{ description: '', quantity: 1 }]);
+  const [items, setItems] = useState<DispatchItem[]>([{ description: '', quantity: 1, unit: 'unidad' }]);
   const [error, setError] = useState<string | null>(null);
+
+  // Las zonas de atención cuelgan de la campaña del centro de origen: primero se
+  // elige de dónde sale la ayuda y con eso se sabe a qué zonas puede ir.
+  const center = (centers ?? []).find((c) => c.id === fromCenterId);
+  const { data: zones } = useCampaignZones(center?.campaignId);
+  const zone = (zones ?? []).find((z) => z.id === zoneId);
 
   const setItem = (idx: number, patch: Partial<DispatchItem>) =>
     setItems((cur) => cur.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
-  const addItem = () => setItems((cur) => [...cur, { description: '', quantity: 1 }]);
+  const addItem = () => setItems((cur) => [...cur, { description: '', quantity: 1, unit: 'unidad' }]);
   const removeItem = (idx: number) => setItems((cur) => cur.filter((_, i) => i !== idx));
+
+  // Al cambiar de centro cambian las zonas posibles: la elegida deja de valer.
+  const pickCenter = (id: string) => {
+    setFromCenterId(id);
+    setZoneId('');
+  };
 
   const submit = async () => {
     if (!fromCenterId) {
@@ -133,9 +165,11 @@ function DispatchForm({ onClose }: { onClose: () => void }) {
       await create.mutateAsync({
         fromCenterId,
         emergencyId: emergencyId || undefined,
-        destAddress: destAddress || undefined,
-        driverName: driverName || undefined,
-        items: cleanItems,
+        zoneId: zoneId || undefined,
+        // Sin dirección escrita, el backend toma la referencia de la zona.
+        destAddress: destAddress.trim() || undefined,
+        driverName: driverName.trim() || undefined,
+        items: cleanItems.map((it) => ({ ...it, unit: it.unit?.trim() || undefined })),
       });
       toast.success(t('toast.saved'));
       onClose();
@@ -168,7 +202,7 @@ function DispatchForm({ onClose }: { onClose: () => void }) {
             label="Centro de origen"
             placeholder="Selecciona…"
             value={fromCenterId}
-            onChange={(e) => setFromCenterId(e.target.value)}
+            onChange={(e) => pickCenter(e.target.value)}
             options={(centers ?? []).map((c) => ({ value: c.id, label: c.name }))}
           />
           <Select
@@ -179,8 +213,53 @@ function DispatchForm({ onClose }: { onClose: () => void }) {
             options={(emergencies ?? []).map((e) => ({ value: e.id, label: e.title }))}
           />
         </div>
+
+        {/* Zona de atención: a dónde va la ayuda. */}
+        {center?.campaignId ? (
+          (zones ?? []).length === 0 ? (
+            <Banner tone="warn" title="La campaña del centro no tiene zonas">
+              Crea una zona de atención en el panel de la campaña para poder mandar la ayuda a un
+              destino conocido.
+            </Banner>
+          ) : (
+            <>
+              <Select
+                label="Zona de atención"
+                hint="a dónde va la ayuda"
+                placeholder="Sin zona"
+                value={zoneId}
+                onChange={(e) => setZoneId(e.target.value)}
+                options={(zones ?? []).map((z) => ({
+                  value: z.id,
+                  label: `${z.name}${z.isPrimary ? ' (principal)' : ''} · ${t(`sev.${z.severity}`)}`,
+                }))}
+              />
+              {zone && (
+                <span className={s.muted} style={{ fontSize: 'var(--fs-xs)' }}>
+                  {zone.reference ? `${zone.reference} · ` : ''}
+                  {destAddress.trim()
+                    ? 'Se usará la dirección que escribiste.'
+                    : 'Sin dirección escrita se usa la referencia y el pin de la zona.'}
+                </span>
+              )}
+            </>
+          )
+        ) : (
+          fromCenterId && (
+            <span className={s.muted} style={{ fontSize: 'var(--fs-xs)' }}>
+              Este centro no está ligado a una campaña, así que no tiene zonas de atención: escribe
+              la dirección de destino.
+            </span>
+          )
+        )}
+
         <div className={s.formRow2}>
-          <Input label="Dirección destino" value={destAddress} onChange={(e) => setDestAddress(e.target.value)} />
+          <Input
+            label="Dirección destino"
+            hint={zone ? 'opcional · si no, la referencia de la zona' : undefined}
+            value={destAddress}
+            onChange={(e) => setDestAddress(e.target.value)}
+          />
           <Input label="Conductor" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
         </div>
 
@@ -206,6 +285,13 @@ function DispatchForm({ onClose }: { onClose: () => void }) {
                   min={1}
                   max={99999}
                   label={i === 0 ? 'Cant.' : undefined}
+                />
+                {/* La unidad va con el ítem: "20 cajas" no es lo mismo que "20 kg". */}
+                <Select
+                  label={i === 0 ? 'Unidad' : undefined}
+                  value={it.unit ?? 'unidad'}
+                  onChange={(e) => setItem(i, { unit: e.target.value })}
+                  options={NEED_UNITS.map((u) => ({ value: u, label: u }))}
                 />
                 {items.length > 1 && (
                   <IconButton icon="close" label="Quitar ítem" onClick={() => removeItem(i)} />

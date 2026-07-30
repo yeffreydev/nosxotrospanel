@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Button,
   Card,
+  Chip,
   Input,
   Select,
+  SegmentedControl,
   Badge,
   Icon,
   Banner,
@@ -19,6 +21,7 @@ import {
   type IconName,
 } from '../../components/ui';
 import { StatusBadge } from '../../components/StatusBadge';
+import { AvailabilityEditor } from '../../components/AvailabilityEditor';
 import {
   useCampaign,
   useCampaignOperations,
@@ -42,6 +45,14 @@ import {
   useCategories,
   useCreateCategory,
   useCreateInventoryItem,
+  useUpdateInventoryItem,
+  useCenterMovements,
+  useCampaignGoals,
+  useCreateCampaignNeed,
+  useUpdateCampaignNeed,
+  useDeleteCampaignNeed,
+  useCampaignAvailability,
+  useDeleteVolunteerSchedule,
   useCreateDonation,
   useConfirmPayment,
   useUpdateDonationStatus,
@@ -61,12 +72,28 @@ import {
 } from '../../hooks/api';
 import { useT } from '../../lib/i18n';
 import { apiErrorMessage } from '../../lib/api';
-import { formatSoles, NEED_UNITS, CAMPAIGN_STATUS } from '../../lib/format';
+import {
+  formatSoles,
+  formatDate,
+  formatDateTime,
+  NEED_UNITS,
+  CAMPAIGN_STATUS,
+  CATEGORY_KIND,
+  WEEKDAYS,
+  TIME_PRESETS,
+  describeWeekdays,
+  normalizeItemName,
+  todayISO,
+} from '../../lib/format';
+import { coordsFromMapUrl, isHttpUrl, AQP } from '../../lib/geo';
 import type {
   Severity,
   CampaignStatus,
   CampaignOperations,
   Campaign,
+  CampaignItemGoal,
+  Category,
+  CategoryKind,
   Zone,
   Brigade,
   Center,
@@ -83,6 +110,8 @@ const SEV_TONE: Record<Severity, BadgeTone> = {
 const SEVERITIES: Severity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const DONATION_STATUSES: DonationStatus[] = ['PROMISED', 'RECEIVED', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED'];
 const BRIGADE_ROLES = ['Líder', 'Conductor', 'Logística', 'Médico', 'Comunicaciones'];
+const CATEGORY_KINDS: CategoryKind[] = ['SUPPLY', 'TOOL', 'TRANSPORT', 'FUEL', 'SERVICE', 'OTHER'];
+
 const isLeaderRole = (role?: string | null) => !!role && /l[ií]der|leader/i.test(role);
 
 // Resumen de despacho de una zona: total necesitado, despachado (entregado),
@@ -100,7 +129,7 @@ function zoneStats(z: Zone) {
   const served = beneficiaries.filter((b) => b.status === 'SERVED').length;
   return { target, dispatched, assigned, served, beneficiaries: beneficiaries.length };
 }
-type TabKey = 'resumen' | 'zonas' | 'brigadas' | 'centros' | 'voluntarios' | 'donaciones' | 'beneficiarios' | 'ajustes';
+type TabKey = 'resumen' | 'metas' | 'zonas' | 'brigadas' | 'centros' | 'voluntarios' | 'donaciones' | 'beneficiarios' | 'ajustes';
 
 async function shareUrl(url: string | undefined, toast: ReturnType<typeof useToast>, ok: string) {
   if (!url) return;
@@ -162,6 +191,7 @@ export default function CampaignPanel() {
           onChange={(v) => setTab(v as TabKey)}
           items={[
             { value: 'resumen', label: t('mgr.kpis'), icon: 'chart' },
+            { value: 'metas', label: 'Metas', icon: 'trophy' },
             { value: 'zonas', label: t('ops.zones'), icon: 'pin' },
             { value: 'brigadas', label: t('ops.brigades'), icon: 'users' },
             { value: 'centros', label: t('ops.centers'), icon: 'box' },
@@ -174,6 +204,7 @@ export default function CampaignPanel() {
       </div>
 
       {tab === 'resumen' && <Resumen campaign={campaign} ops={ops} />}
+      {tab === 'metas' && <Metas campaign={campaign} ops={ops} />}
       {tab === 'zonas' && <Zonas id={id} ops={ops} />}
       {tab === 'brigadas' && <Brigadas id={id} ops={ops} />}
       {tab === 'centros' && <Centros id={id} ops={ops} />}
@@ -277,9 +308,11 @@ function Zonas({ id, ops }: { id?: string; ops: CampaignOperations }) {
           <Card key={z.id}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
                   <strong>{z.name}</strong>
                   <Badge tone={SEV_TONE[z.severity]} dot>{t(`sev.${z.severity}`)}</Badge>
+                  {/* Zona creada con la ubicación declarada al crear la campaña. */}
+                  {z.isPrimary && <Badge tone="info">Principal</Badge>}
                 </div>
                 {z.reference && <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{z.reference}</div>}
               </div>
@@ -610,16 +643,22 @@ function Brigadas({ id, ops }: { id?: string; ops: CampaignOperations }) {
 interface CenterDraft {
   name: string;
   address: string;
+  reference: string;
   openingHours: string;
   contactPhone: string;
   capacity: string;
+  mapUrl: string;
+  photoUrl: string;
 }
 const EMPTY_CENTER: CenterDraft = {
   name: '',
   address: '',
+  reference: '',
   openingHours: '',
   contactPhone: '',
   capacity: '',
+  mapUrl: '',
+  photoUrl: '',
 };
 
 function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
@@ -627,8 +666,17 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const toast = useToast();
   const createCenter = useCreateCenter();
   const updateCenter = useUpdateCenter();
+  const { data: goals } = useCampaignGoals(id);
   const [editing, setEditing] = useState<{ id?: string; draft: CenterDraft } | null>(null);
   const [error, setError] = useState('');
+
+  // Un centro nuevo sin enlace de mapa hereda el pin de la zona principal (la
+  // ubicación que el organizador declaró al crear la campaña).
+  const primaryZone = ops.zones.find((z) => z.isPrimary) ?? ops.zones[0];
+  const campaignCoords =
+    primaryZone?.lat != null && primaryZone?.lng != null
+      ? { lat: primaryZone.lat, lng: primaryZone.lng }
+      : null;
 
   const run = async (fn: () => Promise<unknown>, after?: () => void) => {
     setError('');
@@ -645,18 +693,35 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
     if (!editing) return;
     const { id: centerId, draft } = editing;
     const capacity = Number(draft.capacity);
+    const mapUrl = draft.mapUrl.trim();
+    // Si el enlace del mapa trae coordenadas, el pin del centro queda ubicado
+    // sin pedirle nada más al organizador.
+    const coords = mapUrl ? coordsFromMapUrl(mapUrl) : null;
     const body: Partial<Center> = {
       name: draft.name.trim(),
       address: draft.address.trim(),
+      reference: draft.reference.trim() || undefined,
       openingHours: draft.openingHours.trim() || undefined,
       contactPhone: draft.contactPhone.trim() || undefined,
+      photoUrl: draft.photoUrl.trim() || undefined,
+      ...(mapUrl && isHttpUrl(mapUrl) ? { mapUrl } : {}),
+      ...(coords ?? {}),
       ...(Number.isFinite(capacity) && capacity > 0 ? { capacity } : {}),
     };
+    if (mapUrl && !isHttpUrl(mapUrl)) {
+      setError('Pega un enlace completo del mapa, empezando con https://');
+      return;
+    }
     return run(
       () =>
         centerId
           ? updateCenter.mutateAsync({ id: centerId, body })
-          : createCenter.mutateAsync({ ...body, campaignId: id, lat: 0, lng: 0 } as Partial<Center>),
+          : createCenter.mutateAsync({
+              ...body,
+              campaignId: id,
+              lat: coords?.lat ?? campaignCoords?.lat ?? AQP.lat,
+              lng: coords?.lng ?? campaignCoords?.lng ?? AQP.lng,
+            } as Partial<Center>),
       () => setEditing(null),
     );
   };
@@ -664,6 +729,10 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const draft = editing?.draft ?? EMPTY_CENTER;
   const setDraft = (patch: Partial<CenterDraft>) =>
     setEditing((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
+
+  // Al ingresar productos se sugieren los nombres de las metas de la campaña:
+  // escribiendo el mismo nombre, la meta avanza sola.
+  const suggestions = [...new Set((goals?.items ?? []).map((n) => n.title))];
 
   return (
     <div>
@@ -679,15 +748,19 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
             center={c}
             zones={ops.zones}
             campaignId={id}
+            suggestions={suggestions}
             onEdit={() =>
               setEditing({
                 id: c.id,
                 draft: {
                   name: c.name,
                   address: c.address ?? '',
+                  reference: c.reference ?? '',
                   openingHours: c.openingHours ?? '',
                   contactPhone: c.contactPhone ?? '',
                   capacity: c.capacity ? String(c.capacity) : '',
+                  mapUrl: c.mapUrl ?? '',
+                  photoUrl: c.photoUrl ?? '',
                 },
               })
             }
@@ -716,6 +789,40 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
         <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
           <Input label="Nombre del centro" value={draft.name} onChange={(e) => setDraft({ name: e.target.value })} autoFocus />
           <Input label={t('mgr.address')} value={draft.address} onChange={(e) => setDraft({ address: e.target.value })} />
+          <Input
+            label="Referencia"
+            hint={t('common.optional')}
+            placeholder="Frente al mercado central"
+            value={draft.reference}
+            onChange={(e) => setDraft({ reference: e.target.value })}
+          />
+          <Input
+            label="Enlace del mapa"
+            hint="Google Maps o Waze · el donante abre la ruta desde aquí"
+            type="url"
+            inputMode="url"
+            placeholder="https://maps.google.com/..."
+            value={draft.mapUrl}
+            onChange={(e) => setDraft({ mapUrl: e.target.value })}
+          />
+          {draft.mapUrl.trim() && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+              <Icon name="pin" size={14} />
+              {(() => {
+                const c = coordsFromMapUrl(draft.mapUrl.trim());
+                return c
+                  ? `Pin ubicado: ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`
+                  : 'El enlace no trae coordenadas: se guardará igual para abrir la ruta.';
+              })()}
+            </span>
+          )}
+          <ImageUpload
+            label="Foto del centro"
+            hint={`${t('common.optional')} · ayuda al donante a reconocer el local`}
+            value={draft.photoUrl}
+            onChange={(v) => setDraft({ photoUrl: v })}
+            previewHeight={160}
+          />
           <Input label={t('mgr.hours')} placeholder={t('mgr.hoursPlaceholder')} value={draft.openingHours} onChange={(e) => setDraft({ openingHours: e.target.value })} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             <Input label={t('ops.contactPhone')} type="tel" value={draft.contactPhone} onChange={(e) => setDraft({ contactPhone: e.target.value })} />
@@ -735,47 +842,135 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
   );
 }
 
-function CenterCard({ center: c, zones, campaignId, onEdit }: { center: Center; zones: Zone[]; campaignId?: string; onEdit: () => void }) {
+/* ───────── Ficha de un centro de acopio + su almacén ───────── */
+interface ItemDraft {
+  name: string;
+  categoryId: string;
+  unit: string;
+  quantity: string;
+  expiresAt: string;
+  note: string;
+}
+const EMPTY_ITEM: ItemDraft = {
+  name: '',
+  categoryId: '',
+  unit: '',
+  quantity: '1',
+  expiresAt: '',
+  note: '',
+};
+
+// Etiqueta de categoría con su icono y su tipo de ayuda: en un solo <select> se
+// distingue "🛠️ Herramientas" de "🍚 Alimentos" sin abrir otra pantalla.
+function categoryLabel(cat: Category): string {
+  const icon = cat.icon ? `${cat.icon} ` : '';
+  const kind = cat.kind && cat.kind !== 'SUPPLY' ? ` · ${CATEGORY_KIND[cat.kind].label}` : '';
+  return `${icon}${cat.name}${kind}`;
+}
+
+function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
+  center: Center;
+  zones: Zone[];
+  campaignId?: string;
+  suggestions: string[];
+  onEdit: () => void;
+}) {
   const t = useT();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const { data: center } = useCenter(open ? c.id : undefined);
   const { data: categories } = useCategories();
-  const createItem = useCreateInventoryItem();
+  const createItem = useCreateInventoryItem(campaignId);
+  const updateItem = useUpdateInventoryItem(campaignId);
   const createCategory = useCreateCategory();
-  const [iName, setIName] = useState('');
-  const [iCat, setICat] = useState('');
-  // Cantidad como texto: así se puede borrar el número y volver a escribirlo.
-  const [iQty, setIQty] = useState('1');
-  const [newCat, setNewCat] = useState('');
+  const [showMovements, setShowMovements] = useState(false);
+  const { data: movements } = useCenterMovements(c.id, open && showMovements);
+
+  const [item, setItem] = useState<ItemDraft>(EMPTY_ITEM);
+  const [showMore, setShowMore] = useState(false);
+  const [newCat, setNewCat] = useState<{ name: string; unit: string; kind: CategoryKind } | null>(null);
+  const [editing, setEditing] = useState<(ItemDraft & { id: string }) | null>(null);
   const [error, setError] = useState('');
   const [dispatchItem, setDispatchItem] = useState<{ id: string; name: string; quantity: number; unit?: string } | null>(null);
 
   const doPrint = () => window.print();
-  const qty = Number(iQty);
+  const qty = Number(item.quantity);
   const qtyValid = Number.isFinite(qty) && qty > 0;
+  const category = (categories ?? []).find((cat) => cat.id === item.categoryId);
+  // La unidad por defecto sale de la categoría; el organizador puede cambiarla.
+  const unit = item.unit || category?.unit || 'unidad';
+  const unitOptions = [...new Set([...(category?.unit ? [category.unit] : []), ...NEED_UNITS])];
+  const inventory = center?.inventoryByCategory ?? [];
+  // Nombres ya usados: ingresarlos otra vez suma al mismo producto en vez de duplicarlo.
+  const knownNames = [
+    ...new Set([...suggestions, ...inventory.flatMap((g) => g.items.map((i) => i.name))]),
+  ];
+  const existing = inventory
+    .flatMap((g) => g.items)
+    .find((i) => normalizeItemName(i.name) === normalizeItemName(item.name) && (i.unit ?? 'unidad') === unit);
 
   const addItem = async () => {
-    if (!iName.trim() || !iCat || !qtyValid) return;
+    if (!item.name.trim() || !item.categoryId || !qtyValid) return;
     setError('');
     try {
-      await createItem.mutateAsync({ centerId: c.id, body: { name: iName.trim(), categoryId: iCat, quantity: qty } });
+      const saved = await createItem.mutateAsync({
+        centerId: c.id,
+        body: {
+          name: item.name.trim(),
+          categoryId: item.categoryId,
+          quantity: qty,
+          unit,
+          expiresAt: item.expiresAt ? new Date(item.expiresAt).toISOString() : undefined,
+          note: item.note.trim() || undefined,
+        },
+      });
+      toast.success(
+        saved.merged
+          ? `Sumado: ${saved.name} ahora tiene ${saved.quantity} ${saved.unit ?? ''}`.trim()
+          : t('toast.saved'),
+      );
+      // Se conservan categoría y unidad: normalmente se ingresan varios
+      // productos parecidos seguidos.
+      setItem((d) => ({ ...d, name: '', quantity: '1', expiresAt: '', note: '' }));
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    const n = Number(editing.quantity);
+    setError('');
+    try {
+      await updateItem.mutateAsync({
+        centerId: c.id,
+        itemId: editing.id,
+        body: {
+          name: editing.name.trim(),
+          categoryId: editing.categoryId || undefined,
+          unit: editing.unit || undefined,
+          quantity: Number.isFinite(n) && n >= 0 ? n : undefined,
+          expiresAt: editing.expiresAt ? new Date(editing.expiresAt).toISOString() : undefined,
+        },
+      });
       toast.success(t('toast.saved'));
-      setIName('');
-      setIQty('1');
+      setEditing(null);
     } catch (e) {
       setError(apiErrorMessage(e));
     }
   };
 
   const addCategory = async () => {
-    const name = newCat.trim();
-    if (!name) return;
+    if (!newCat?.name.trim()) return;
     setError('');
     try {
-      const created = await createCategory.mutateAsync({ name });
-      setICat(created.id);
-      setNewCat('');
+      const created = await createCategory.mutateAsync({
+        name: newCat.name.trim(),
+        unit: newCat.unit.trim() || undefined,
+        kind: newCat.kind,
+      });
+      setItem((d) => ({ ...d, categoryId: created.id, unit: created.unit ?? '' }));
+      setNewCat(null);
       toast.success(t('toast.saved'));
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -785,12 +980,23 @@ function CenterCard({ center: c, zones, campaignId, onEdit }: { center: Center; 
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
-        <div>
-          <strong>{c.name}</strong>
-          {c.address && <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{c.address}</div>}
-          {c.openingHours && <div style={{ fontSize: 'var(--fs-sm)' }}><Icon name="clock" size={14} /> {c.openingHours}</div>}
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', minWidth: 0 }}>
+          {c.photoUrl && (
+            <img
+              src={c.photoUrl}
+              alt={c.name}
+              style={{ width: 56, height: 56, borderRadius: 'var(--r-md)', objectFit: 'cover', flexShrink: 0 }}
+            />
+          )}
+          <div style={{ minWidth: 0 }}>
+            <strong>{c.name}</strong>
+            {c.address && <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{c.address}</div>}
+            {c.reference && <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>{c.reference}</div>}
+            {c.openingHours && <div style={{ fontSize: 'var(--fs-sm)' }}><Icon name="clock" size={14} /> {c.openingHours}</div>}
+            {c.contactPhone && <div style={{ fontSize: 'var(--fs-sm)' }}><Icon name="phone" size={14} /> {c.contactPhone}</div>}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
           <Badge tone="neutral">{c.loadPct ?? 0}%</Badge>
           <Button size="sm" variant="ghost" icon="settings" aria-label={t('common.edit')} onClick={onEdit} />
           <Button size="sm" variant="ghost" icon={open ? 'chevronDown' : 'box'} onClick={() => setOpen((v) => !v)}>
@@ -799,20 +1005,60 @@ function CenterCard({ center: c, zones, campaignId, onEdit }: { center: Center; 
         </div>
       </div>
 
+      {c.mapUrl && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 'var(--sp-2)', flexWrap: 'wrap' }}>
+          <a
+            href={c.mapUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            style={{ fontSize: 'var(--fs-sm)', color: 'var(--brand-700)', fontWeight: 'var(--fw-bold)', display: 'inline-flex', gap: 4, alignItems: 'center' }}
+          >
+            <Icon name="map" size={14} /> Cómo llegar
+          </a>
+          <Button size="sm" variant="ghost" icon="share" onClick={() => shareUrl(c.mapUrl, toast, t('common.copied'))}>
+            Compartir ubicación
+          </Button>
+        </div>
+      )}
+
       {open && (
         <div style={{ marginTop: 'var(--sp-3)' }}>
           <div className="nx-print-area">
             <h3 style={{ fontSize: 'var(--fs-md)', marginBottom: 'var(--sp-2)' }}>{c.name} — {t('mgr.inventory')}</h3>
-            {(center?.inventoryByCategory ?? []).length === 0 && (
+            {inventory.length === 0 && (
               <p style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{t('common.empty')}</p>
             )}
-            {(center?.inventoryByCategory ?? []).map((g) => (
+            {inventory.map((g) => (
               <div key={g.categoryId} style={{ marginBottom: 'var(--sp-2)' }}>
-                <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-sm)' }}>{g.category} · {g.totalQuantity}</div>
+                <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-sm)' }}>
+                  {g.icon ? `${g.icon} ` : ''}{g.category} · {g.totalQuantity}
+                </div>
                 {g.items.map((it) => (
                   <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
-                    <span style={{ flex: 1 }}>{it.name}</span>
+                    <span style={{ flex: 1 }}>
+                      {it.name}
+                      {it.expiresAt && (
+                        <span style={{ fontSize: 'var(--fs-xs)' }}> · vence {formatDate(it.expiresAt)}</span>
+                      )}
+                    </span>
                     <span>{it.quantity}{it.unit ? ` ${it.unit}` : ''}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon="settings"
+                      aria-label={t('common.edit')}
+                      onClick={() =>
+                        setEditing({
+                          id: it.id,
+                          name: it.name,
+                          categoryId: it.categoryId ?? g.categoryId,
+                          unit: it.unit ?? 'unidad',
+                          quantity: String(it.quantity),
+                          expiresAt: it.expiresAt ? it.expiresAt.slice(0, 10) : '',
+                          note: '',
+                        })
+                      }
+                    />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -826,38 +1072,200 @@ function CenterCard({ center: c, zones, campaignId, onEdit }: { center: Center; 
               </div>
             ))}
           </div>
-          <Button size="sm" variant="subtle" icon="download" onClick={doPrint} style={{ marginTop: 'var(--sp-2)' }}>
-            {t('mgr.printInventory')}
-          </Button>
+          <div style={{ display: 'flex', gap: 6, marginTop: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            <Button size="sm" variant="subtle" icon="download" onClick={doPrint}>
+              {t('mgr.printInventory')}
+            </Button>
+            <Button size="sm" variant="ghost" icon="list" onClick={() => setShowMovements((v) => !v)}>
+              {showMovements ? 'Ocultar movimientos' : 'Ver movimientos'}
+            </Button>
+          </div>
+
+          {showMovements && (
+            <div style={{ marginTop: 'var(--sp-2)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-2)' }}>
+              {(movements ?? []).length === 0 && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{t('common.empty')}</span>
+              )}
+              {(movements ?? []).map((m) => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 'var(--fs-sm)' }}>
+                  <span>
+                    <Badge tone={m.type === 'IN' ? 'success' : m.type === 'OUT' ? 'warn' : 'neutral'}>
+                      {m.type === 'IN' ? 'Entrada' : m.type === 'OUT' ? 'Salida' : 'Ajuste'}
+                    </Badge>{' '}
+                    {m.item?.name ?? '—'} · {m.quantity}{m.item?.unit ? ` ${m.item.unit}` : ''}
+                  </span>
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {formatDateTime(m.createdAt)}{m.user ? ` · ${m.user.fullName}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {error && <div style={{ marginTop: 'var(--sp-2)' }}><Banner tone="error">{error}</Banner></div>}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr auto', gap: 6, marginTop: 'var(--sp-3)', alignItems: 'flex-end' }}>
-            <Input label="Ítem" placeholder="Arroz 5 kg" value={iName} onChange={(e) => setIName(e.target.value)} />
-            <Select
-              label="Categoría"
-              value={iCat}
-              onChange={(e) => setICat(e.target.value)}
-              options={[{ value: '', label: 'Elige una categoría' }, ...(categories ?? []).map((cat) => ({ value: cat.id, label: cat.name }))]}
-            />
-            <QtyInput label="Cantidad" value={iQty} onChange={setIQty} />
-            <Button size="sm" icon="plus" disabled={!iName.trim() || !iCat || !qtyValid} loading={createItem.isPending} onClick={addItem} />
-          </div>
+          {/* Ingreso de producto: nombre + categoría + unidad + cantidad. */}
+          <div style={{ marginTop: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-3)' }}>
+            <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-sm)', marginBottom: 6 }}>
+              Ingresar producto
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr', gap: 6 }}>
+              <div>
+                <Input
+                  label="Producto"
+                  placeholder="Frazadas"
+                  list={`items-${c.id}`}
+                  value={item.name}
+                  onChange={(e) => setItem((d) => ({ ...d, name: e.target.value }))}
+                />
+                <datalist id={`items-${c.id}`}>
+                  {knownNames.map((n) => <option key={n} value={n} />)}
+                </datalist>
+              </div>
+              <Select
+                label="Categoría"
+                value={item.categoryId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const cat = (categories ?? []).find((x) => x.id === id);
+                  // Al cambiar de categoría se propone su unidad; si ya se eligió
+                  // una a mano, se respeta.
+                  setItem((d) => ({ ...d, categoryId: id, unit: d.unit || cat?.unit || '' }));
+                }}
+                options={[
+                  { value: '', label: 'Elige una categoría' },
+                  ...(categories ?? []).map((cat) => ({ value: cat.id, label: categoryLabel(cat) })),
+                ]}
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6, alignItems: 'flex-end', marginTop: 6 }}>
+              <Select
+                label="Unidad de medida"
+                value={unit}
+                onChange={(e) => setItem((d) => ({ ...d, unit: e.target.value }))}
+                options={unitOptions.map((u) => ({ value: u, label: u }))}
+              />
+              <QtyInput label="Cantidad" value={item.quantity} onChange={(v) => setItem((d) => ({ ...d, quantity: v }))} width={110} />
+              <Button
+                icon="plus"
+                disabled={!item.name.trim() || !item.categoryId || !qtyValid}
+                loading={createItem.isPending}
+                onClick={addItem}
+              >
+                {existing ? 'Sumar' : 'Ingresar'}
+              </Button>
+            </div>
+            {existing && (
+              <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                Ya hay {existing.quantity} {existing.unit ?? ''} de «{existing.name}»: se sumará a ese producto.
+              </p>
+            )}
 
-          <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'flex-end' }}>
-            <Input
-              label="Nueva categoría"
-              hint="si la que necesitas no está"
-              placeholder="Herramientas"
-              value={newCat}
-              onChange={(e) => setNewCat(e.target.value)}
-            />
-            <Button size="sm" variant="subtle" icon="plus" disabled={!newCat.trim()} loading={createCategory.isPending} onClick={addCategory}>
-              Crear
+            <Button size="sm" variant="ghost" icon={showMore ? 'chevronDown' : 'chevronRight'} onClick={() => setShowMore((v) => !v)} style={{ marginTop: 6 }}>
+              {showMore ? 'Menos opciones' : 'Vencimiento, nota y categorías'}
             </Button>
+
+            {showMore && (
+              <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <Input
+                    label="Vence"
+                    hint={t('common.optional')}
+                    type="date"
+                    value={item.expiresAt}
+                    onChange={(e) => setItem((d) => ({ ...d, expiresAt: e.target.value }))}
+                  />
+                  <Input
+                    label="Nota del ingreso"
+                    hint={t('common.optional')}
+                    placeholder="Donación de la parroquia"
+                    value={item.note}
+                    onChange={(e) => setItem((d) => ({ ...d, note: e.target.value }))}
+                  />
+                </div>
+
+                {newCat ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr auto auto', gap: 6, alignItems: 'flex-end' }}>
+                    <Input label="Nueva categoría" placeholder="Combustible" value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} autoFocus />
+                    <Select
+                      label="Unidad"
+                      value={newCat.unit}
+                      onChange={(e) => setNewCat({ ...newCat, unit: e.target.value })}
+                      options={NEED_UNITS.map((u) => ({ value: u, label: u }))}
+                    />
+                    <Select
+                      label="Tipo"
+                      value={newCat.kind}
+                      onChange={(e) => setNewCat({ ...newCat, kind: e.target.value as CategoryKind })}
+                      options={CATEGORY_KINDS.map((k) => ({ value: k, label: `${CATEGORY_KIND[k].icon} ${CATEGORY_KIND[k].label}` }))}
+                    />
+                    <Button size="sm" icon="check" disabled={!newCat.name.trim()} loading={createCategory.isPending} onClick={addCategory} />
+                    <Button size="sm" variant="ghost" icon="close" onClick={() => setNewCat(null)} />
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    icon="plus"
+                    onClick={() => setNewCat({ name: '', unit: 'unidad', kind: 'SUPPLY' })}
+                  >
+                    Crear categoría (comida, herramientas, transporte…)
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Corrección de un producto ya registrado. */}
+      <Modal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        title={`${t('common.edit')}: ${editing?.name ?? ''}`}
+        footer={
+          <>
+            <Button variant="subtle" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
+            <Button icon="check" loading={updateItem.isPending} onClick={saveEdit}>{t('common.save')}</Button>
+          </>
+        }
+      >
+        {editing && (
+          <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
+            <Input label="Producto" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+            <Select
+              label="Categoría"
+              value={editing.categoryId}
+              onChange={(e) => setEditing({ ...editing, categoryId: e.target.value })}
+              options={(categories ?? []).map((cat) => ({ value: cat.id, label: categoryLabel(cat) }))}
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <Select
+                label="Unidad de medida"
+                value={editing.unit}
+                onChange={(e) => setEditing({ ...editing, unit: e.target.value })}
+                options={[...new Set([editing.unit, ...NEED_UNITS])].map((u) => ({ value: u, label: u }))}
+              />
+              <Input
+                label="Stock real"
+                hint="queda como ajuste"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={editing.quantity}
+                onChange={(e) => setEditing({ ...editing, quantity: e.target.value })}
+              />
+            </div>
+            <Input
+              label="Vence"
+              hint={t('common.optional')}
+              type="date"
+              value={editing.expiresAt}
+              onChange={(e) => setEditing({ ...editing, expiresAt: e.target.value })}
+            />
+          </div>
+        )}
+      </Modal>
 
       {dispatchItem && (
         <DispatchModal
@@ -885,11 +1293,22 @@ function DispatchModal({ centerId, campaignId, zones, item, onClose }: {
   const dispatch = useDispatchCenterItem(campaignId);
   const { data: beneficiaries } = useBeneficiaries(campaignId ? { campaignId } : undefined);
   const [qty, setQty] = useState('1');
-  const [zoneId, setZoneId] = useState('');
+  // Zona de atención: se propone la principal para no dejar el despacho sin destino.
+  const [zoneId, setZoneId] = useState(() => (zones.find((z) => z.isPrimary) ?? zones[0])?.id ?? '');
   const [beneficiaryId, setBeneficiaryId] = useState('');
+  const [destAddress, setDestAddress] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [note, setNote] = useState('');
   const [error, setError] = useState('');
+
   const n = Number(qty);
-  const valid = Number.isFinite(n) && n > 0 && n <= item.quantity;
+  const valid = Number.isFinite(n) && n > 0 && n <= item.quantity && !!zoneId;
+  const zone = zones.find((z) => z.id === zoneId);
+  // Beneficiarios de la zona elegida primero: es a quienes se les va a entregar.
+  const zoneBeneficiaries = (beneficiaries ?? []).filter((b) => !zoneId || b.zoneId === zoneId);
+  const others = (beneficiaries ?? []).filter((b) => zoneId && b.zoneId !== zoneId);
+  // Lo que esa zona todavía necesita, para no mandar de más.
+  const pending = (zone?.needs ?? []).filter((need) => (need.targetQty ?? 0) > (need.fulfilledQty ?? 0));
 
   const submit = async () => {
     setError('');
@@ -901,6 +1320,9 @@ function DispatchModal({ centerId, campaignId, zones, item, onClose }: {
           quantity: n,
           zoneId: zoneId || undefined,
           beneficiaryId: beneficiaryId || undefined,
+          destAddress: destAddress.trim() || undefined,
+          driverName: driverName.trim() || undefined,
+          note: note.trim() || undefined,
         },
       });
       toast.success(t('toast.saved'));
@@ -926,22 +1348,67 @@ function DispatchModal({ centerId, campaignId, zones, item, onClose }: {
       <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
           Stock: {item.quantity}{item.unit ? ` ${item.unit}` : ''}
+          {Number.isFinite(n) && n > 0 && n <= item.quantity && (
+            <> · queda {item.quantity - n}{item.unit ? ` ${item.unit}` : ''}</>
+          )}
         </div>
         <QtyInput label={t('donate.quantity')} value={qty} onChange={setQty} width={120} />
-        <Select
-          label={`${t('ops.zones')} (${t('common.optional')})`}
-          value={zoneId}
-          onChange={(e) => setZoneId(e.target.value)}
-          options={[{ value: '', label: '—' }, ...zones.map((z) => ({ value: z.id, label: z.name }))]}
-        />
+
+        {zones.length === 0 ? (
+          <Banner tone="warn" title="No hay zonas de atención">
+            Crea una zona en la pestaña Zonas para poder despachar: es el destino de la ayuda.
+          </Banner>
+        ) : (
+          <Select
+            label="Zona de atención"
+            hint="a dónde va la ayuda"
+            value={zoneId}
+            onChange={(e) => {
+              setZoneId(e.target.value);
+              setBeneficiaryId('');
+            }}
+            options={zones.map((z) => ({
+              value: z.id,
+              label: `${z.name}${z.isPrimary ? ' (principal)' : ''} · ${t(`sev.${z.severity}`)}`,
+            }))}
+          />
+        )}
+
+        {zone && (
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'grid', gap: 2 }}>
+            {zone.reference && <span><Icon name="pin" size={12} /> {zone.reference}</span>}
+            {pending.length > 0 && (
+              <span>
+                Pendiente en la zona: {pending.map((p) => `${p.title} ${(p.targetQty ?? 0) - (p.fulfilledQty ?? 0)}${p.unit ? ` ${p.unit}` : ''}`).join(' · ')}
+              </span>
+            )}
+            {zone.mapUrl && (
+              <a href={zone.mapUrl} target="_blank" rel="noreferrer noopener" style={{ color: 'var(--brand-700)', fontWeight: 'var(--fw-bold)' }}>
+                Ver zona en el mapa
+              </a>
+            )}
+          </div>
+        )}
+
         <Select
           label={`${t('nav.beneficiaries')} (${t('common.optional')})`}
           value={beneficiaryId}
           onChange={(e) => setBeneficiaryId(e.target.value)}
-          options={[{ value: '', label: '—' }, ...(beneficiaries ?? []).map((b) => ({ value: b.id, label: `${b.fullName} · ${b.docNumber}` }))]}
+          options={[
+            { value: '', label: '— Sin beneficiario (queda asignado a la zona)' },
+            ...zoneBeneficiaries.map((b) => ({ value: b.id, label: `${b.fullName} · ${b.docNumber}` })),
+            ...others.map((b) => ({ value: b.id, label: `${b.fullName} · ${b.docNumber} (otra zona)` })),
+          ]}
         />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <Input label="Punto de entrega" hint={t('common.optional')} placeholder="Losa deportiva" value={destAddress} onChange={(e) => setDestAddress(e.target.value)} />
+          <Input label="Quién lo lleva" hint={t('common.optional')} value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+        </div>
+        <Input label={t('common.note')} hint={t('common.optional')} value={note} onChange={(e) => setNote(e.target.value)} />
         <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-          {beneficiaryId ? 'Se entregará al beneficiario (queda entregado).' : 'Sin beneficiario queda asignado a la zona.'}
+          {beneficiaryId
+            ? 'Se entregará al beneficiario: el despacho queda entregado y la persona marcada como atendida.'
+            : 'Sin beneficiario queda asignado a la zona, listo para repartir.'}
         </p>
       </div>
     </Modal>
@@ -959,6 +1426,10 @@ function Voluntarios({ id }: { id?: string }) {
   const addMember = useAddBrigadeMember(id);
   const removeMember = useRemoveBrigadeMember(id);
   const createVolunteer = useCreateVolunteer();
+  // Día que se está mirando: por defecto hoy, para responder de un vistazo
+  // "¿con qué voluntarios cuento?".
+  const [day, setDay] = useState(todayISO());
+  const availabilityQ = useCampaignAvailability(id, day);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [createDraft, setCreateDraft] = useState<{ fullName: string; phone: string; availability: string } | null>(null);
@@ -981,6 +1452,13 @@ function Voluntarios({ id }: { id?: string }) {
 
   const volunteers = volunteersQ.data ?? [];
   const brigades = brigadesQ.data ?? [];
+  const availability = availabilityQ.data;
+  const availableById = new Map(
+    (availability?.volunteers ?? [])
+      .filter((a) => a.available)
+      .map((a) => [a.id, a]),
+  );
+  const isToday = day === todayISO();
 
   return (
     <div>
@@ -989,6 +1467,48 @@ function Voluntarios({ id }: { id?: string }) {
         <Button icon="mail" onClick={() => setOpen(true)}>Agregar por correo</Button>
       </div>
       {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
+
+      {/* Con quién se cuenta ese día: cruza inscritos y disponibilidad declarada. */}
+      <Card style={{ marginBottom: 'var(--sp-3)' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <Input
+              label={isToday ? 'Disponibles hoy' : 'Disponibles el día'}
+              type="date"
+              value={day}
+              onChange={(e) => setDay(e.target.value)}
+            />
+          </div>
+          <Button size="sm" variant={isToday ? 'primary' : 'subtle'} icon="calendar" onClick={() => setDay(todayISO())}>
+            Hoy
+          </Button>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 'var(--fw-black)' }}>
+              {availability?.availableCount ?? 0}
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', fontWeight: 'var(--fw-bold)' }}>
+                {' '}/ {availability?.total ?? volunteers.length}
+              </span>
+            </div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>voluntarios disponibles</div>
+          </div>
+        </div>
+        {(availability?.availableCount ?? 0) === 0 ? (
+          <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+            Nadie declaró disponibilidad para ese día. Registra los horarios con el botón del reloj
+            de cada voluntario (puedes marcar días fijos de la semana).
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 'var(--sp-2)' }}>
+            {(availability?.volunteers ?? [])
+              .filter((a) => a.available)
+              .map((a) => (
+                <Badge key={a.id} tone="success">
+                  {a.fullName} · {a.slots.map((sl) => `${sl.startTime}–${sl.endTime}`).join(', ')}
+                </Badge>
+              ))}
+          </div>
+        )}
+      </Card>
 
       {volunteers.length === 0 ? (
         <Banner tone="info" title="Todavía no hay voluntarios inscritos">
@@ -1002,6 +1522,12 @@ function Voluntarios({ id }: { id?: string }) {
                 <div>
                   <strong>{v.fullName}</strong>{' '}
                   {v.isGuest && <Badge tone="warn">Sin cuenta</Badge>}
+                  {availableById.has(v.id) && (
+                    <Badge tone="success" dot>
+                      {isToday ? 'Hoy' : 'Ese día'}:{' '}
+                      {availableById.get(v.id)!.slots.map((sl) => `${sl.startTime}–${sl.endTime}`).join(', ')}
+                    </Badge>
+                  )}
                   <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
                     {v.email ?? 'sin correo'}
                     {v.phone ? ` · 📞 ${v.phone}` : ''}
@@ -1186,67 +1712,439 @@ function ScheduleModal({ volunteerId, name, campaignId, onClose }: {
 }) {
   const t = useT();
   const toast = useToast();
-  const addSchedule = useAddVolunteerSchedule();
+  const addSchedule = useAddVolunteerSchedule(campaignId);
+  const deleteSchedule = useDeleteVolunteerSchedule(campaignId);
   const { data: schedules } = useVolunteerSchedules(volunteerId);
-  const [date, setDate] = useState('');
-  const [startTime, setStartTime] = useState('08:00');
-  const [endTime, setEndTime] = useState('13:00');
-  const [note, setNote] = useState('');
-  const [error, setError] = useState('');
-
-  const submit = async () => {
-    setError('');
-    try {
-      await addSchedule.mutateAsync({
-        volunteerId,
-        body: {
-          startTime,
-          endTime,
-          date: date || undefined,
-          note: note.trim() || undefined,
-          campaignId,
-        },
-      });
-      toast.success(t('toast.saved'));
-      setNote('');
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    }
-  };
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={`${t('ops.registerVolunteer')}: ${name}`}
-      footer={
-        <>
-          <Button variant="subtle" onClick={onClose}>{t('common.close')}</Button>
-          <Button icon="plus" disabled={!startTime || !endTime} loading={addSchedule.isPending} onClick={submit}>{t('common.add')}</Button>
-        </>
-      }
+      title={`Disponibilidad: ${name}`}
+      footer={<Button variant="subtle" onClick={onClose}>{t('common.close')}</Button>}
     >
-      {error && <div style={{ marginBottom: 'var(--sp-2)' }}><Banner tone="error">{error}</Banner></div>}
-      <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
-        <Input label={t('common.date')} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-          <Input label={t('shift.start')} type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-          <Input label={t('shift.end')} type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+      <AvailabilityEditor
+        schedules={schedules ?? []}
+        campaignId={campaignId}
+        adding={addSchedule.isPending}
+        deleting={deleteSchedule.isPending}
+        onAdd={async (body) => {
+          await addSchedule.mutateAsync({ volunteerId, body });
+          toast.success(t('toast.saved'));
+        }}
+        onDelete={(scheduleId) => deleteSchedule.mutate({ volunteerId, scheduleId })}
+      />
+    </Modal>
+  );
+}
+
+/* ───────── Metas de la campaña: dinero, voluntarios y especies ───────── */
+interface NeedDraft {
+  title: string;
+  categoryId: string;
+  unit: string;
+  targetQty: string;
+  priority: Severity;
+  zoneId: string;
+}
+const EMPTY_NEED: NeedDraft = {
+  title: '',
+  categoryId: '',
+  unit: '',
+  targetQty: '10',
+  priority: 'MEDIUM',
+  zoneId: '',
+};
+
+function Metas({ campaign, ops }: { campaign: Campaign; ops: CampaignOperations }) {
+  const t = useT();
+  const toast = useToast();
+  const id = campaign.id;
+  const { data: goals, isLoading } = useCampaignGoals(id);
+  const { data: categories } = useCategories();
+  const createNeed = useCreateCampaignNeed(id);
+  const updateNeed = useUpdateCampaignNeed(id);
+  const deleteNeed = useDeleteCampaignNeed(id);
+  const createCategory = useCreateCategory();
+  const updateCampaign = useUpdateCampaign();
+
+  const [draft, setDraft] = useState<NeedDraft>(EMPTY_NEED);
+  const [newCat, setNewCat] = useState<{ name: string; unit: string; kind: CategoryKind } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; title: string; targetQty: string; unit: string } | null>(null);
+  const [toDelete, setToDelete] = useState<CampaignItemGoal | null>(null);
+  // Metas de dinero y voluntarios: se editan aquí mismo, sin ir a Ajustes.
+  const [goalAmount, setGoalAmount] = useState(campaign.goalAmount != null ? String(campaign.goalAmount) : '');
+  const [volunteerGoal, setVolunteerGoal] = useState(campaign.volunteerGoal != null ? String(campaign.volunteerGoal) : '');
+  const [error, setError] = useState('');
+
+  const run = async (fn: () => Promise<unknown>, after?: () => void) => {
+    setError('');
+    try {
+      await fn();
+      after?.();
+      toast.success(t('toast.saved'));
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
+  };
+
+  const category = (categories ?? []).find((c) => c.id === draft.categoryId);
+  const unit = draft.unit || category?.unit || 'unidad';
+  const target = Number(draft.targetQty);
+  const targetValid = Number.isFinite(target) && target > 0;
+
+  const addNeed = () =>
+    run(
+      () =>
+        createNeed.mutateAsync({
+          title: draft.title.trim(),
+          targetQty: target,
+          unit,
+          categoryId: draft.categoryId || undefined,
+          priority: draft.priority,
+          zoneId: draft.zoneId || undefined,
+        }),
+      () => setDraft({ ...EMPTY_NEED, categoryId: draft.categoryId, unit: draft.unit }),
+    );
+
+  const addCategory = () => {
+    if (!newCat?.name.trim()) return;
+    return run(async () => {
+      const created = await createCategory.mutateAsync({
+        name: newCat.name.trim(),
+        unit: newCat.unit.trim() || undefined,
+        kind: newCat.kind,
+      });
+      setDraft((d) => ({ ...d, categoryId: created.id, unit: created.unit ?? '' }));
+      setNewCat(null);
+    });
+  };
+
+  // Dejar el campo vacío quita la meta (manda null); un número la fija. Un valor
+  // inválido no se manda, para no borrar una meta por un dedazo.
+  const goalValue = (raw: string): number | null | undefined => {
+    if (raw.trim() === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+
+  const saveMoneyGoals = () => {
+    const money = goalValue(goalAmount);
+    const vol = goalValue(volunteerGoal);
+    if (money === undefined && goalAmount.trim() !== '') {
+      setError('La meta de dinero debe ser un número mayor que cero.');
+      return;
+    }
+    if (vol === undefined && volunteerGoal.trim() !== '') {
+      setError('La meta de voluntarios debe ser un número mayor que cero.');
+      return;
+    }
+    return run(() =>
+      updateCampaign.mutateAsync({
+        id,
+        body: {
+          ...(money !== undefined ? { goalAmount: money } : {}),
+          ...(vol !== undefined ? { volunteerGoal: vol } : {}),
+        },
+      }),
+    );
+  };
+
+  if (isLoading) return <CenteredSpinner label={t('common.loading')} />;
+
+  return (
+    <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+      {error && <Banner tone="error">{error}</Banner>}
+
+      {/* Dinero y voluntarios */}
+      <Card>
+        <div style={{ fontWeight: 'var(--fw-bold)', marginBottom: 'var(--sp-2)' }}>Metas generales</div>
+        <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+          <div>
+            <ProgressBar
+              value={goals?.money.raised ?? 0}
+              max={goals?.money.goal || 1}
+              tone="gold"
+              label={t('camp.raised')}
+              rightLabel={
+                goals?.money.goal
+                  ? `${formatSoles(goals.money.raised)} / ${formatSoles(goals.money.goal)}`
+                  : formatSoles(goals?.money.raised ?? 0)
+              }
+            />
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+              {goals?.money.backers ?? 0} {t('camp.backers').toLowerCase()}
+            </div>
+          </div>
+          <div>
+            <ProgressBar
+              value={goals?.volunteers.enrolled ?? 0}
+              max={goals?.volunteers.goal || 1}
+              tone="brand"
+              label="Voluntarios inscritos"
+              rightLabel={
+                goals?.volunteers.goal
+                  ? `${goals.volunteers.enrolled} / ${goals.volunteers.goal}`
+                  : String(goals?.volunteers.enrolled ?? 0)
+              }
+            />
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+              Hoy cuentas con {goals?.volunteers.availableToday ?? 0} disponible(s)
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6, alignItems: 'flex-end' }}>
+            <Input
+              label="Meta de dinero"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              prefix="S/"
+              placeholder="8000"
+              value={goalAmount}
+              onChange={(e) => setGoalAmount(e.target.value)}
+            />
+            <Input
+              label="Meta de voluntarios"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              placeholder="20"
+              value={volunteerGoal}
+              onChange={(e) => setVolunteerGoal(e.target.value)}
+            />
+            <Button icon="check" loading={updateCampaign.isPending} onClick={saveMoneyGoals}>
+              {t('common.save')}
+            </Button>
+          </div>
         </div>
-        <Input label={t('common.note')} value={note} onChange={(e) => setNote(e.target.value)} />
-        {(schedules ?? []).length > 0 && (
-          <div style={{ marginTop: 'var(--sp-2)' }}>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>{t('ops.registerVolunteer')}</div>
-            {(schedules ?? []).map((s) => (
-              <div key={s.id} style={{ fontSize: 'var(--fs-sm)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>{s.date ? new Date(s.date).toLocaleDateString() : '—'} · {s.startTime}–{s.endTime}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{s.note ?? ''}</span>
+      </Card>
+
+      {/* Metas en especie */}
+      <Card>
+        <div style={{ fontWeight: 'var(--fw-bold)' }}>Qué se necesita</div>
+        <p style={{ margin: '2px 0 var(--sp-2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+          Escribe el producto tal como lo vas a registrar en el almacén ("frazadas", "arroz"):
+          cada ingreso al centro de acopio con ese nombre y esa unidad avanza la meta solo.
+        </p>
+
+        {(goals?.items ?? []).length === 0 && (
+          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>
+            Todavía no hay metas en especie.
+          </p>
+        )}
+
+        <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+          {(goals?.items ?? []).map((n) => (
+            <div key={n.id}>
+              <ProgressBar
+                value={n.collectedQty}
+                max={n.targetQty || 1}
+                tone={n.isBlocked ? 'warn' : 'brand'}
+                label={`${n.category?.icon ? `${n.category.icon} ` : ''}${n.title}${n.zone ? ` · ${n.zone.name}` : ''}`}
+                rightLabel={`${n.collectedQty}/${n.targetQty} ${n.unit}`}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                  {n.isBlocked ? 'No traer más · ' : ''}
+                  Faltan {n.remaining} {n.unit} · en almacén {n.inStock} · entregado {n.deliveredQty}
+                </span>
+                <span style={{ display: 'flex', gap: 2 }}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={n.isBlocked ? 'check' : 'minus'}
+                    aria-label={n.isBlocked ? 'Volver a pedir' : 'No traer más'}
+                    onClick={() => run(() => updateNeed.mutateAsync({ id: n.id, body: { isBlocked: !n.isBlocked } }))}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon="settings"
+                    aria-label={t('common.edit')}
+                    onClick={() =>
+                      setEditing({ id: n.id, title: n.title, targetQty: String(n.targetQty), unit: n.unit })
+                    }
+                  />
+                  <Button size="sm" variant="ghost" icon="close" aria-label={t('common.delete')} onClick={() => setToDelete(n)} />
+                </span>
               </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Alta de meta */}
+        <div style={{ marginTop: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-3)', display: 'grid', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr', gap: 6 }}>
+            <Input
+              label="Qué se necesita"
+              placeholder="Frazadas"
+              value={draft.title}
+              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+            />
+            <Select
+              label="Categoría"
+              value={draft.categoryId}
+              onChange={(e) => {
+                const cat = (categories ?? []).find((x) => x.id === e.target.value);
+                setDraft({ ...draft, categoryId: e.target.value, unit: draft.unit || cat?.unit || '' });
+              }}
+              options={[
+                { value: '', label: 'Sin categoría' },
+                ...(categories ?? []).map((cat) => ({ value: cat.id, label: categoryLabel(cat) })),
+              ]}
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 6, alignItems: 'flex-end' }}>
+            <QtyInput label="Cantidad" value={draft.targetQty} onChange={(v) => setDraft({ ...draft, targetQty: v })} width={100} />
+            <Select
+              label={t('ops.unit')}
+              value={unit}
+              onChange={(e) => setDraft({ ...draft, unit: e.target.value })}
+              options={[...new Set([unit, ...NEED_UNITS])].map((u) => ({ value: u, label: u }))}
+            />
+            <Select
+              label="Prioridad"
+              value={draft.priority}
+              onChange={(e) => setDraft({ ...draft, priority: e.target.value as Severity })}
+              options={SEVERITIES.map((s) => ({ value: s, label: t(`sev.${s}`) }))}
+            />
+            <Button
+              icon="plus"
+              disabled={!draft.title.trim() || !targetValid}
+              loading={createNeed.isPending}
+              onClick={addNeed}
+            >
+              {t('common.add')}
+            </Button>
+          </div>
+          {ops.zones.length > 0 && (
+            <Select
+              label="Solo para una zona"
+              hint={t('common.optional')}
+              value={draft.zoneId}
+              onChange={(e) => setDraft({ ...draft, zoneId: e.target.value })}
+              options={[
+                { value: '', label: 'Toda la campaña' },
+                ...ops.zones.map((z) => ({ value: z.id, label: z.name })),
+              ]}
+            />
+          )}
+
+          {newCat ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr auto auto', gap: 6, alignItems: 'flex-end' }}>
+              <Input label="Nueva categoría" placeholder="Combustible" value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} autoFocus />
+              <Select
+                label="Unidad"
+                value={newCat.unit}
+                onChange={(e) => setNewCat({ ...newCat, unit: e.target.value })}
+                options={NEED_UNITS.map((u) => ({ value: u, label: u }))}
+              />
+              <Select
+                label="Tipo"
+                value={newCat.kind}
+                onChange={(e) => setNewCat({ ...newCat, kind: e.target.value as CategoryKind })}
+                options={CATEGORY_KINDS.map((k) => ({ value: k, label: `${CATEGORY_KIND[k].icon} ${CATEGORY_KIND[k].label}` }))}
+              />
+              <Button size="sm" icon="check" disabled={!newCat.name.trim()} loading={createCategory.isPending} onClick={addCategory} />
+              <Button size="sm" variant="ghost" icon="close" onClick={() => setNewCat(null)} />
+            </div>
+          ) : (
+            <Button size="sm" variant="subtle" icon="plus" onClick={() => setNewCat({ name: '', unit: 'unidad', kind: 'SUPPLY' })}>
+              Crear categoría (comida, herramientas, transporte, combustible…)
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      {/* Resumen por categoría */}
+      {(goals?.byCategory ?? []).length > 0 && (
+        <Card>
+          <div style={{ fontWeight: 'var(--fw-bold)', marginBottom: 'var(--sp-2)' }}>Por categoría</div>
+          <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
+            {(goals?.byCategory ?? []).map((row) => (
+              <ProgressBar
+                key={row.id ?? row.name}
+                value={row.collectedQty}
+                max={row.targetQty || 1}
+                tone="gold"
+                label={`${row.icon ? `${row.icon} ` : ''}${row.name}`}
+                rightLabel={`${row.collectedQty}/${row.targetQty}`}
+              />
             ))}
           </div>
+        </Card>
+      )}
+
+      <Modal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        title={`${t('common.edit')}: ${editing?.title ?? ''}`}
+        footer={
+          <>
+            <Button variant="subtle" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
+            <Button
+              icon="check"
+              loading={updateNeed.isPending}
+              onClick={() =>
+                editing &&
+                run(
+                  () =>
+                    updateNeed.mutateAsync({
+                      id: editing.id,
+                      body: {
+                        title: editing.title.trim(),
+                        targetQty: Number(editing.targetQty) || 0,
+                        unit: editing.unit,
+                      },
+                    }),
+                  () => setEditing(null),
+                )
+              }
+            >
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        {editing && (
+          <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
+            <Input label="Qué se necesita" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <Input
+                label="Cantidad"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={editing.targetQty}
+                onChange={(e) => setEditing({ ...editing, targetQty: e.target.value })}
+              />
+              <Select
+                label={t('ops.unit')}
+                value={editing.unit}
+                onChange={(e) => setEditing({ ...editing, unit: e.target.value })}
+                options={[...new Set([editing.unit, ...NEED_UNITS])].map((u) => ({ value: u, label: u }))}
+              />
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              Si cambias el nombre, la meta se enlazará con los productos que se registren con ese
+              nombre nuevo.
+            </p>
+          </div>
         )}
-      </div>
-    </Modal>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!toDelete}
+        danger
+        title={`${t('common.delete')}: ${toDelete?.title ?? ''}`}
+        message="Se quitará la meta. Lo que ya está en el almacén no se toca."
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        loading={deleteNeed.isPending}
+        onCancel={() => setToDelete(null)}
+        onConfirm={() => run(() => deleteNeed.mutateAsync(toDelete!.id), () => setToDelete(null))}
+      />
+    </div>
   );
 }
 

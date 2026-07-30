@@ -24,11 +24,15 @@ import {
   useCheckout,
   usePassport,
   useVolunteerMe,
+  useMySchedules,
+  useAddMySchedule,
+  useDeleteMySchedule,
 } from '../../hooks/api';
+import { AvailabilityEditor } from '../../components/AvailabilityEditor';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { useAuth } from '../../store/auth';
 import { useT } from '../../lib/i18n';
-import { formatDateTime, formatTime, formatDate } from '../../lib/format';
+import { formatDateTime, formatTime, formatDate, describeWeekdays } from '../../lib/format';
 import type { Shift } from '../../lib/types';
 
 type TabKey = 'available' | 'mine' | 'passport';
@@ -43,6 +47,7 @@ export default function VolunteerHome() {
   return (
     <div className="n-page">
       <PageHead title={`¡Hola, ${user?.fullName?.split(' ')[0] ?? ''}!`} subtitle={t('app.tagline')} />
+      <MyAvailabilityCard />
       <MyBrigadeCard />
       <div style={{ marginBottom: 'var(--sp-5)' }}>
         <Tabs
@@ -60,6 +65,59 @@ export default function VolunteerHome() {
       {tab === 'mine' && <MineTab />}
       {tab === 'passport' && <PassportTab />}
     </div>
+  );
+}
+
+/**
+ * "¿Cuándo puedes venir?" — el voluntario declara su propia disponibilidad.
+ *
+ * Es lo que alimenta el "con qué voluntarios cuento hoy" del organizador, así
+ * que se pone arriba y plegado: se abre, se marcan los días y listo.
+ */
+function MyAvailabilityCard() {
+  const t = useT();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const { data: schedules } = useMySchedules();
+  const addSchedule = useAddMySchedule();
+  const deleteSchedule = useDeleteMySchedule();
+  const rows = schedules ?? [];
+
+  // Resumen de una línea: lo que el organizador va a ver de ti.
+  const summary = rows.length
+    ? rows
+        .map((s) =>
+          `${s.date ? formatDate(s.date) : describeWeekdays(s.weekdays) || 'Sin días'} ${s.startTime}–${s.endTime}`,
+        )
+        .join(' · ')
+    : 'Todavía no dijiste cuándo puedes venir.';
+
+  return (
+    <Card style={{ marginBottom: 'var(--sp-4)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
+        <div style={{ minWidth: 0 }}>
+          <strong><Icon name="clock" size={16} /> Cuándo puedo venir</strong>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{summary}</div>
+        </div>
+        <Button size="sm" variant={rows.length ? 'ghost' : 'primary'} icon={open ? 'chevronDown' : 'calendar'} onClick={() => setOpen((v) => !v)}>
+          {open ? t('common.close') : rows.length ? t('common.edit') : t('common.add')}
+        </Button>
+      </div>
+      {open && (
+        <div style={{ marginTop: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-3)' }}>
+          <AvailabilityEditor
+            schedules={rows}
+            adding={addSchedule.isPending}
+            deleting={deleteSchedule.isPending}
+            onAdd={async (body) => {
+              await addSchedule.mutateAsync(body);
+              toast.success(t('toast.saved'));
+            }}
+            onDelete={(scheduleId) => deleteSchedule.mutate(scheduleId)}
+          />
+        </div>
+      )}
+    </Card>
   );
 }
 

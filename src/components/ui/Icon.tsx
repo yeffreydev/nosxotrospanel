@@ -57,7 +57,9 @@ export type IconName =
   | 'palette'
   | 'cpu'
   | 'upload'
-  | 'image';
+  | 'image'
+  | 'eye'
+  | 'eyeOff';
 
 const PATHS: Record<IconName, string> = {
   heart: 'M12 21s-7.5-4.6-10-9C.5 9 1.7 5 5.5 5 8 5 9.5 7 12 9c2.5-2 4-4 6.5-4C22.3 5 23.5 9 22 12c-2.5 4.4-10 9-10 9z',
@@ -118,6 +120,9 @@ const PATHS: Record<IconName, string> = {
   paw: 'M12 13c2.5 0 4 1.9 4 3.6S14.5 21 12 21s-4-1.7-4-3.4S9.5 13 12 13zM6.5 11a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4zM17.5 11a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4zM9.5 7.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM14.5 7.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
   palette: 'M12 22a10 10 0 1 1 10-10c0 2-2 3-4 3h-2a2 2 0 0 0-1.5 3.3A2 2 0 0 1 12 22zM8.5 9.5h.01M12 7h.01M15.5 9.5h.01',
   cpu: 'M6 6h12v12H6zM9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2',
+  eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7zM12 15a3 3 0 100-6 3 3 0 000 6z',
+  eyeOff:
+    'M3 3l18 18M10.6 10.6a3 3 0 004.2 4.2M9.9 5.2A9.6 9.6 0 0112 5c6.4 0 10 7 10 7a18 18 0 01-3.2 4.1M6.2 6.8A18 18 0 002 12s3.6 7 10 7a9.7 9.7 0 004.2-.9',
 };
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {

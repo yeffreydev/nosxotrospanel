@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import css from './auth.module.css';
-import { Card, Input, Button, Banner } from '../components/ui';
+import { Card, Input, PasswordInput, Button, Banner } from '../components/ui';
 import { useLogin, useGoogleLogin } from '../hooks/api';
 import { useAuth, ROLE_HOME } from '../store/auth';
 import { useT } from '../lib/i18n';
@@ -73,9 +73,8 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="tu@correo.com"
           />
-          <Input
+          <PasswordInput
             label={t('auth.password')}
-            type="password"
             autoComplete="current-password"
             required
             value={password}

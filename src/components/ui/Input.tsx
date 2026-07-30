@@ -6,10 +6,12 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   hint?: string;
   error?: string;
   prefix?: ReactNode;
+  /** Contenido pegado al borde derecho, dentro del campo (ej. ver contraseña). */
+  suffix?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, hint, error, prefix, className, id, required, ...rest },
+  { label, hint, error, prefix, suffix, className, id, required, ...rest },
   ref,
 ) {
   const autoId = useId();
@@ -19,7 +21,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     <input
       id={inputId}
       ref={ref}
-      className={`${s.control} ${error ? s.controlError : ''} ${className ?? ''}`}
+      className={`${s.control} ${error ? s.controlError : ''} ${suffix ? s.controlWithSuffix : ''} ${className ?? ''}`}
       aria-invalid={!!error}
       aria-describedby={error ? errorId : undefined}
       required={required}
@@ -42,10 +44,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           {hint && <span className={s.labelHint}>{hint}</span>}
         </label>
       )}
-      {prefix ? (
+      {prefix || suffix ? (
         <div className={s.inputAffix}>
-          <span className={s.inputPrefix}>{prefix}</span>
+          {prefix && <span className={s.inputPrefix}>{prefix}</span>}
           {control}
+          {suffix && <span className={s.inputSuffix}>{suffix}</span>}
         </div>
       ) : (
         control

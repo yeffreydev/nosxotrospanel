@@ -18,6 +18,7 @@ import {
 } from '../components/ui';
 import {
   useCampaign,
+  useCampaignGoals,
   useCreateDonation,
   useConfirmPayment,
   useMyCampaignEnrollment,
@@ -66,6 +67,8 @@ export default function CampaignDetail() {
   const { user } = useAuth();
 
   const { data: campaign, isLoading, isError } = useCampaign(slug);
+  // Metas de la campaña: dinero, voluntarios y especies (lo que aún falta).
+  const { data: goals } = useCampaignGoals(slug);
   const createDonation = useCreateDonation();
   const confirmPayment = useConfirmPayment();
 
@@ -260,6 +263,51 @@ export default function CampaignDetail() {
           </div>
         )}
       </Card>
+
+      {/* Qué se necesita: metas en especie y de voluntarios */}
+      {(goals?.items.length || goals?.volunteers.goal) && (
+        <Card style={{ marginTop: 'var(--sp-4)' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 'var(--sp-3)' }}>
+            <Icon name="box" size={18} />
+            <strong>Qué se necesita</strong>
+          </div>
+          <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+            {!!goals?.volunteers.goal && (
+              <ProgressBar
+                value={goals.volunteers.enrolled}
+                max={goals.volunteers.goal}
+                tone="brand"
+                label="Voluntarios"
+                rightLabel={`${goals.volunteers.enrolled}/${goals.volunteers.goal}`}
+              />
+            )}
+            {(goals?.items ?? [])
+              .filter((n) => !n.isBlocked)
+              .map((n) => (
+                <div key={n.id}>
+                  <ProgressBar
+                    value={n.collectedQty}
+                    max={n.targetQty || 1}
+                    tone="gold"
+                    label={`${n.category?.icon ? `${n.category.icon} ` : ''}${n.title}`}
+                    rightLabel={`${n.collectedQty}/${n.targetQty} ${n.unit}`}
+                  />
+                  {n.remaining > 0 && (
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                      Faltan {n.remaining} {n.unit}
+                    </div>
+                  )}
+                </div>
+              ))}
+          </div>
+          {(goals?.items ?? []).some((n) => n.isBlocked) && (
+            <div style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+              Ya no hace falta traer:{' '}
+              {(goals?.items ?? []).filter((n) => n.isBlocked).map((n) => n.title).join(', ')}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Organizer */}
       {campaign.organizer && (

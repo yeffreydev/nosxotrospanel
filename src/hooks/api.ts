@@ -12,10 +12,14 @@ import type {
   CampaignOperations,
   CampaignUpdate,
   CampaignVolunteer,
+  CampaignGoals,
   MyCampaignEnrollment,
   Category,
   Center,
+  InventoryItem,
+  InventoryMovement,
   Dispatch,
+  DispatchItem,
   Donation,
   Emergency,
   EmergencyMapPoint,
@@ -212,21 +216,67 @@ export function useScanInventory() {
     },
   });
 }
-// Alta manual de inventario (sin QR): crea el artículo y genera su SKU.
-export function useCreateInventoryItem() {
+// Ingreso manual de producto (sin QR).
+//
+// El backend agrupa por nombre + unidad: si el centro ya tiene ese producto, suma
+// la cantidad y devuelve `merged: true` en vez de crear otra línea.
+export interface CreateInventoryItemBody {
+  name: string;
+  categoryId: string;
+  quantity: number;
+  unit?: string;
+  expiresAt?: string;
+  note?: string;
+}
+export function useCreateInventoryItem(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ centerId, body }: { centerId: string; body: CreateInventoryItemBody }) =>
+      api
+        .post<InventoryItem & { merged: boolean }>(`/centers/${centerId}/inventory`, body)
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['centers'] });
+      qc.invalidateQueries({ queryKey: ['center'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
+      invalidateOps(qc, campaignId);
+    },
+  });
+}
+// Corrige un producto ya registrado (nombre, categoría, unidad, stock real).
+export function useUpdateInventoryItem(campaignId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       centerId,
+      itemId,
       body,
     }: {
       centerId: string;
-      body: { name: string; categoryId: string; quantity: number; unit?: string; expiresAt?: string };
-    }) => api.post(`/centers/${centerId}/inventory`, body).then((r) => r.data),
+      itemId: string;
+      body: {
+        name?: string;
+        categoryId?: string;
+        unit?: string;
+        quantity?: number;
+        expiresAt?: string;
+        reason?: string;
+      };
+    }) => api.patch<InventoryItem>(`/centers/${centerId}/inventory/${itemId}`, body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['centers'] });
       qc.invalidateQueries({ queryKey: ['center'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
+      invalidateOps(qc, campaignId);
     },
+  });
+}
+// Historial de movimientos del almacén de un centro.
+export function useCenterMovements(centerId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['center', centerId, 'movements'],
+    queryFn: () => get<InventoryMovement[]>(`/centers/${centerId}/movements`),
+    enabled: !!centerId && enabled,
   });
 }
 export function useCreateCenter() {
@@ -252,7 +302,7 @@ export function useUpdateCenter() {
 export function useCreateCategory() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; unit?: string; icon?: string }) =>
+    mutationFn: (body: { name: string; unit?: string; icon?: string; kind?: string }) =>
       api.post<Category>('/categories', body).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
   });
@@ -287,18 +337,27 @@ export interface CreateCampaignBody {
   title: string;
   summary: string;
   story: string;
-  goalAmount?: number;
+  /** Meta de dinero. null la quita. */
+  goalAmount?: number | null;
   volunteerSkills?: string[];
+  /** Meta de voluntarios: cuántas personas necesita la campaña. null la quita. */
+  volunteerGoal?: number | null;
   category?: string;
   coverPhoto?: string;
   deadline?: string;
+  /** Ubicación principal: con ella el backend crea la zona principal. */
+  region?: string;
+  province?: string;
   district?: string;
+  address?: string;
+  mapUrl?: string;
   lat?: number;
   lng?: number;
   yapeNumber?: string;
   yapePhone?: string;
   bankName?: string;
   bankAccount?: string;
+  cci?: string;
   accountHolder?: string;
   qrImageUrl?: string;
   status?: 'DRAFT' | 'ACTIVE';
@@ -563,18 +622,32 @@ export function useSyncBeneficiaries() {
 }
 
 /* ---------------- Dispatches ---------------- */
-export function useDispatches(params?: { status?: string; emergencyId?: string }) {
+export function useDispatches(params?: { status?: string; emergencyId?: string; zoneId?: string }) {
   return useQuery({
     queryKey: ['dispatches', params],
     queryFn: () => get<Dispatch[]>('/dispatches', params),
   });
 }
+export interface CreateDispatchBody {
+  fromCenterId: string;
+  emergencyId?: string;
+  /** Zona de atención destino: de ella salen dirección y pin si no se escriben. */
+  zoneId?: string;
+  destAddress?: string;
+  driverName?: string;
+  items: DispatchItem[];
+}
 export function useCreateDispatch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<Dispatch>) =>
+    mutationFn: (body: CreateDispatchBody) =>
       api.post<Dispatch>('/dispatches', body).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dispatches'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dispatches'] });
+      // El despacho descuenta del centro y toca las zonas de la campaña.
+      qc.invalidateQueries({ queryKey: ['centers'] });
+      qc.invalidateQueries({ queryKey: ['campaign'] });
+    },
   });
 }
 export function useUpdateDispatchStatus() {
@@ -657,6 +730,15 @@ export function useCampaignBrigades(campaignId?: string) {
     enabled: !!campaignId,
   });
 }
+// Zonas de atención de una campaña. Se usan como destino al despachar, así que
+// hacen falta también fuera del panel de operaciones.
+export function useCampaignZones(campaignId?: string) {
+  return useQuery({
+    queryKey: ['campaign', campaignId, 'zones'],
+    queryFn: () => get<Zone[]>(`/campaigns/${campaignId}/zones`),
+    enabled: !!campaignId,
+  });
+}
 export function useCreateZone(campaignId?: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -688,6 +770,53 @@ export function useAddZoneNeed(campaignId?: string) {
     onSuccess: () => invalidateOps(qc, campaignId),
   });
 }
+/* ---------------- Metas de la campaña (dinero, voluntarios, especies) ---------------- */
+export interface CampaignNeedBody {
+  title: string;
+  targetQty: number;
+  unit?: string;
+  categoryId?: string;
+  priority?: string;
+  isBlocked?: boolean;
+  zoneId?: string;
+}
+
+/** Tablero de metas: lo que se necesita y cuánto lleva recolectado. */
+export function useCampaignGoals(idOrSlug?: string, date?: string) {
+  return useQuery({
+    queryKey: ['campaign', idOrSlug, 'goals', date ?? ''],
+    queryFn: () => get<CampaignGoals>(`/campaigns/${idOrSlug}/goals`, date ? { date } : undefined),
+    enabled: !!idOrSlug,
+  });
+}
+function invalidateGoals(qc: ReturnType<typeof useQueryClient>, campaignId?: string) {
+  qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
+  invalidateOps(qc, campaignId);
+}
+export function useCreateCampaignNeed(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CampaignNeedBody) =>
+      api.post<Need>(`/campaigns/${campaignId}/needs`, body).then((r) => r.data),
+    onSuccess: () => invalidateGoals(qc, campaignId),
+  });
+}
+export function useUpdateCampaignNeed(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<CampaignNeedBody> }) =>
+      api.patch<Need>(`/needs/${id}`, body).then((r) => r.data),
+    onSuccess: () => invalidateGoals(qc, campaignId),
+  });
+}
+export function useDeleteCampaignNeed(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/needs/${id}`).then((r) => r.data),
+    onSuccess: () => invalidateGoals(qc, campaignId),
+  });
+}
+
 export function useCreateBrigade(campaignId?: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -806,9 +935,11 @@ export function useCreateOrganization() {
 export interface DispatchCenterItemBody {
   itemId: string;
   quantity: number;
+  /** Zona de atención a la que va la ayuda (obligatoria salvo que la aporte el beneficiario). */
   zoneId?: string;
   beneficiaryId?: string;
   driverName?: string;
+  destAddress?: string;
   note?: string;
 }
 export function useDispatchCenterItem(campaignId?: string) {
@@ -821,6 +952,7 @@ export function useDispatchCenterItem(campaignId?: string) {
       qc.invalidateQueries({ queryKey: ['center'] });
       qc.invalidateQueries({ queryKey: ['beneficiaries'] });
       qc.invalidateQueries({ queryKey: ['dispatches'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
       invalidateOps(qc, campaignId);
     },
   });
@@ -837,10 +969,45 @@ export interface VolunteerProfileRow {
 export interface VolunteerScheduleRow {
   id: string;
   date?: string | null;
+  /** Días de la semana de una disponibilidad recurrente (0=domingo … 6=sábado). */
+  weekdays?: number[];
+  validFrom?: string | null;
+  validTo?: string | null;
   startTime: string;
   endTime: string;
   note?: string | null;
   campaignId?: string | null;
+}
+
+/** Con qué voluntarios se cuenta un día concreto. */
+export interface CampaignAvailabilityRow {
+  id: string;
+  volunteerId: string | null;
+  fullName: string;
+  phone?: string | null;
+  email?: string | null;
+  isGuest: boolean;
+  skills: string[];
+  available: boolean;
+  slots: { id: string; startTime: string; endTime: string; note?: string | null; recurring: boolean }[];
+}
+export interface CampaignAvailability {
+  date: string;
+  weekday: number;
+  total: number;
+  availableCount: number;
+  volunteers: CampaignAvailabilityRow[];
+}
+export function useCampaignAvailability(campaignId?: string, date?: string) {
+  return useQuery({
+    queryKey: ['campaign', campaignId, 'availability', date ?? ''],
+    queryFn: () =>
+      get<CampaignAvailability>(
+        `/campaigns/${campaignId}/volunteers/availability`,
+        date ? { date } : undefined,
+      ),
+    enabled: !!campaignId,
+  });
 }
 export function useVolunteersList(q?: string) {
   return useQuery({
@@ -863,15 +1030,65 @@ export function useVolunteerSchedules(volunteerId?: string, enabled = true) {
     enabled: !!volunteerId && enabled,
   });
 }
-export function useAddVolunteerSchedule() {
+export interface VolunteerScheduleBody {
+  startTime: string;
+  endTime: string;
+  /** Día concreto ("el sábado 12") como YYYY-MM-DD. Excluyente con weekdays. */
+  date?: string;
+  /** Días de la semana recurrentes (0=domingo … 6=sábado). */
+  weekdays?: number[];
+  validFrom?: string;
+  validTo?: string;
+  note?: string;
+  campaignId?: string;
+}
+export function useAddVolunteerSchedule(campaignId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ volunteerId, body }: { volunteerId: string; body: { startTime: string; endTime: string; date?: string; note?: string; campaignId?: string } }) =>
+    mutationFn: ({ volunteerId, body }: { volunteerId: string; body: VolunteerScheduleBody }) =>
       api.post<VolunteerScheduleRow>(`/volunteers/${volunteerId}/schedule`, body).then((r) => r.data),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['volunteer', v.volunteerId, 'schedule'] });
       qc.invalidateQueries({ queryKey: ['volunteers'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'availability'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
     },
+  });
+}
+export function useDeleteVolunteerSchedule(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ volunteerId, scheduleId }: { volunteerId: string; scheduleId: string }) =>
+      api.delete(`/volunteers/${volunteerId}/schedule/${scheduleId}`).then((r) => r.data),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['volunteer', v.volunteerId, 'schedule'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'availability'] });
+    },
+  });
+}
+
+/* --- Disponibilidad declarada por el propio voluntario (/volunteers/me) --- */
+export function useMySchedules(enabled = true) {
+  return useQuery({
+    queryKey: ['volunteers', 'me', 'schedule'],
+    queryFn: () => get<VolunteerScheduleRow[]>('/volunteers/me/schedule'),
+    enabled,
+  });
+}
+export function useAddMySchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: VolunteerScheduleBody) =>
+      api.post<VolunteerScheduleRow>('/volunteers/me/schedule', body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['volunteers', 'me', 'schedule'] }),
+  });
+}
+export function useDeleteMySchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) =>
+      api.delete(`/volunteers/me/schedule/${scheduleId}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['volunteers', 'me', 'schedule'] }),
   });
 }
 

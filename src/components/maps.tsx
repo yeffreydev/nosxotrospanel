@@ -1,6 +1,7 @@
-import { MapContainer, TileLayer, Marker, Popup, CircleMarker } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, CircleMarker, Circle } from 'react-leaflet';
 import { Link } from 'react-router-dom';
-import { severityIcon, centerIcon, campaignIcon, AREQUIPA_CENTER } from '../lib/leaflet';
+import { severityIcon, centerIcon, campaignIcon, AREQUIPA_CENTER, CAMPAIGN_COLOR } from '../lib/leaflet';
+import { AREQUIPA_DISTRICT_CENTROIDS } from '../lib/geo';
 import { formatSoles } from '../lib/format';
 import type { Campaign, Center, EmergencyMapPoint } from '../lib/types';
 
@@ -55,21 +56,46 @@ export function OpsMap({
           </Marker>
         ) : null,
       )}
-      {campaigns.map((c) =>
-        c.lat != null && c.lng != null ? (
-          <Marker key={`camp-${c.id}`} position={[c.lat, c.lng]} icon={campaignIcon()}>
+      {campaigns.map((c) => {
+        if (c.lat != null && c.lng != null) {
+          return (
+            <Marker key={`camp-${c.id}`} position={[c.lat, c.lng]} icon={campaignIcon()}>
+              <Popup>
+                <strong>{c.title}</strong>
+                <br />
+                {formatSoles(c.raisedAmount)}
+                {c.goalAmount ? ` · ${c.progressPct}%` : ''}
+                {c.district ? ` · ${c.district}` : ''}
+                <br />
+                <Link to={`/campanas/${c.slug}`}>Ver campaña →</Link>
+              </Popup>
+            </Marker>
+          );
+        }
+        // Sin coordenadas: no hay pin exacto. Si el distrito elegido es de
+        // Arequipa, se zonifica con un círculo aproximado sobre su centroide.
+        const centroid = c.district ? AREQUIPA_DISTRICT_CENTROIDS[c.district] : undefined;
+        if (!centroid) return null;
+        return (
+          <Circle
+            key={`camp-zone-${c.id}`}
+            center={[centroid.lat, centroid.lng]}
+            radius={1500}
+            pathOptions={{ color: CAMPAIGN_COLOR, fillColor: CAMPAIGN_COLOR, fillOpacity: 0.15, weight: 1 }}
+          >
             <Popup>
               <strong>{c.title}</strong>
               <br />
               {formatSoles(c.raisedAmount)}
               {c.goalAmount ? ` · ${c.progressPct}%` : ''}
-              {c.district ? ` · ${c.district}` : ''}
+              {' · '}
+              {c.district} (ubicación aproximada)
               <br />
               <Link to={`/campanas/${c.slug}`}>Ver campaña →</Link>
             </Popup>
-          </Marker>
-        ) : null,
-      )}
+          </Circle>
+        );
+      })}
     </MapContainer>
   );
 }

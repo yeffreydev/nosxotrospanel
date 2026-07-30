@@ -305,6 +305,7 @@ const es: Dict = {
   'donate.payInfo': 'Datos de pago de la campaña',
   'donate.yape': 'Yape',
   'donate.account': 'Cuenta bancaria',
+  'donate.cci': 'CCI',
   'donate.holder': 'Titular',
 
   // Consulta por teléfono
@@ -389,6 +390,7 @@ const es: Dict = {
   'camp.yapeNumber': 'Número de Yape',
   'camp.bankName': 'Banco',
   'camp.bankAccount': 'Número de cuenta',
+  'camp.cci': 'CCI',
   'camp.accountHolder': 'Titular de la cuenta',
   'camp.history': 'Historial de campañas',
   'camp.manageOps': 'Operaciones',
@@ -770,6 +772,7 @@ const en: Dict = {
   'donate.payInfo': "Campaign's payment details",
   'donate.yape': 'Yape',
   'donate.account': 'Bank account',
+  'donate.cci': 'CCI',
   'donate.holder': 'Account holder',
 
   'track.byCode': 'By code',
@@ -848,6 +851,7 @@ const en: Dict = {
   'camp.yapeNumber': 'Yape number',
   'camp.bankName': 'Bank',
   'camp.bankAccount': 'Account number',
+  'camp.cci': 'CCI',
   'camp.accountHolder': 'Account holder',
   'camp.history': 'Campaign history',
   'camp.manageOps': 'Operations',

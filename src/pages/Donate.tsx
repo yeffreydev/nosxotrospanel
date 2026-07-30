@@ -427,6 +427,9 @@ export default function Donate() {
                       {t('donate.account')}: <strong>{selectedCampaign.bankName} {selectedCampaign.bankAccount}</strong>
                     </div>
                   )}
+                  {selectedCampaign.cci && (
+                    <div>{t('donate.cci')}: <strong>{selectedCampaign.cci}</strong></div>
+                  )}
                   {selectedCampaign.accountHolder && (
                     <div>{t('donate.holder')}: {selectedCampaign.accountHolder}</div>
                   )}

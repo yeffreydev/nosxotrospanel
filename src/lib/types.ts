@@ -43,11 +43,17 @@ export type BeneficiaryStatus = 'PENDING' | 'VALIDATED' | 'SERVED' | 'REJECTED';
 export type DispatchStatus = 'PREPARING' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';
 export type InventoryMovementType = 'IN' | 'OUT' | 'ADJUST';
 
+export type CategoryKind = 'SUPPLY' | 'TOOL' | 'TRANSPORT' | 'FUEL' | 'SERVICE' | 'OTHER';
+
 export interface Category {
   id: string;
   name: string;
   icon?: string;
   color?: string;
+  /** Unidad de medida por defecto de los productos de la categoría. */
+  unit?: string;
+  /** Qué tipo de ayuda representa: bienes, herramientas, transporte… */
+  kind?: CategoryKind;
 }
 
 export interface VolunteerBadge {
@@ -181,11 +187,16 @@ export interface Campaign {
   goalAmount?: number | null;
   raisedAmount: number;
   volunteerSkills?: string[];
+  volunteerGoal?: number | null;
   currency: string;
   backersCount: number;
   progressPct: number;
   deadline?: string;
+  region?: string;
+  province?: string;
   district?: string;
+  address?: string;
+  mapUrl?: string;
   lat?: number;
   lng?: number;
   featured: boolean;
@@ -193,6 +204,7 @@ export interface Campaign {
   yapePhone?: string;
   bankName?: string;
   bankAccount?: string;
+  cci?: string;
   accountHolder?: string;
   qrImageUrl?: string;
   emergencyId?: string;
@@ -211,9 +223,59 @@ export interface Need {
   category?: Category;
   targetQty: number;
   fulfilledQty?: number;
+  deliveredQty?: number;
   unit?: string;
   priority?: Severity;
   isBlocked?: boolean;
+  campaignId?: string;
+  zoneId?: string;
+}
+
+/** Meta en especie de una campaña, ya calculada contra el inventario. */
+export interface CampaignItemGoal {
+  id: string;
+  title: string;
+  unit: string;
+  targetQty: number;
+  collectedQty: number;
+  deliveredQty: number;
+  inStock: number;
+  remaining: number;
+  pct: number;
+  priority: Severity;
+  isBlocked: boolean;
+  categoryId?: string | null;
+  category?: Category | null;
+  zone?: { id: string; name: string } | null;
+}
+
+/** Tablero de metas de la campaña: dinero, voluntarios y especies. */
+export interface CampaignGoals {
+  money: {
+    goal?: number | null;
+    raised: number;
+    currency: string;
+    backers: number;
+    pct: number;
+  };
+  volunteers: {
+    goal?: number | null;
+    enrolled: number;
+    withAccount: number;
+    availableToday: number;
+    pct: number;
+  };
+  items: CampaignItemGoal[];
+  byCategory: {
+    id: string | null;
+    name: string;
+    icon?: string | null;
+    kind?: CategoryKind | null;
+    targetQty: number;
+    collectedQty: number;
+    needsCount: number;
+    pct: number;
+  }[];
 }
 
 export interface BrigadeMember {
@@ -260,6 +322,8 @@ export interface Zone {
   severity: Severity;
   lat?: number;
   lng?: number;
+  /** Zona creada con la ubicación declarada al crear la campaña. */
+  isPrimary?: boolean;
   needs?: Need[];
   brigades?: Brigade[];
   beneficiaries?: { id: string; fullName: string; status: BeneficiaryStatus }[];
@@ -373,6 +437,8 @@ export interface InventoryItem {
   id: string;
   sku: string;
   name: string;
+  /** Nombre normalizado: dos ingresos con el mismo nameKey + unit son el mismo producto. */
+  nameKey?: string;
   categoryId?: string;
   category?: Category;
   quantity: number;
@@ -383,15 +449,27 @@ export interface InventoryItem {
 export interface InventoryCategoryGroup {
   category: string;
   categoryId: string;
+  icon?: string | null;
+  kind?: CategoryKind | null;
   totalQuantity: number;
   items: InventoryItem[];
+}
+
+/** Movimiento de almacén (entrada, salida o ajuste). */
+export interface InventoryMovement {
+  id: string;
+  type: InventoryMovementType;
+  quantity: number;
+  reason?: string | null;
+  createdAt: string;
+  item?: { id: string; name: string; unit?: string } | null;
+  user?: { id: string; fullName: string } | null;
 }
 
 export interface Center {
   id: string;
   name: string;
   address?: string;
-  district?: string;
   lat?: number;
   lng?: number;
   capacity: number;
@@ -401,6 +479,9 @@ export interface Center {
   contactPhone?: string;
   openingHours?: string;
   mapUrl?: string;
+  /** Foto del local para que el donante lo reconozca al llegar. */
+  photoUrl?: string;
+  reference?: string;
   campaignId?: string;
   inventory?: InventoryItem[];
   inventoryByCategory?: InventoryCategoryGroup[];
@@ -484,6 +565,8 @@ export interface BeneficiarySyncResult {
 export interface DispatchItem {
   description: string;
   quantity: number;
+  /** Unidad de medida de lo despachado (cajas, kg, litros…). */
+  unit?: string;
   donationId?: string;
   beneficiaryId?: string;
 }
@@ -494,6 +577,9 @@ export interface Dispatch {
   fromCenterId: string;
   fromCenter?: Center;
   emergencyId?: string;
+  /** Zona de atención a la que va la ayuda: el destino del despacho. */
+  zoneId?: string;
+  zone?: { id: string; name: string; reference?: string | null; mapUrl?: string | null; severity: Severity } | null;
   destLat?: number;
   destLng?: number;
   destAddress?: string;

@@ -19,6 +19,7 @@ export type { SegmentOption } from './SegmentedControl';
 export { Tabs } from './Tabs';
 export type { TabItem } from './Tabs';
 export { Input } from './Input';
+export { PasswordInput } from './PasswordInput';
 export { Textarea } from './Textarea';
 export { Select } from './Select';
 export type { SelectOption } from './Select';
