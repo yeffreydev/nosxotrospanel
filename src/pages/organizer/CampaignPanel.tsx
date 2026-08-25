@@ -209,7 +209,7 @@ export default function CampaignPanel() {
       {tab === 'brigadas' && <Brigadas id={id} ops={ops} />}
       {tab === 'centros' && <Centros id={id} ops={ops} />}
       {tab === 'voluntarios' && <Voluntarios id={id} />}
-      {tab === 'donaciones' && <Donaciones id={id} />}
+      {tab === 'donaciones' && <Donaciones id={id} ops={ops} />}
       {tab === 'beneficiarios' && <Beneficiarios campaignId={id} emergencyId={campaign.emergencyId} ops={ops} />}
       {tab === 'ajustes' && <Ajustes campaign={campaign} onEdit={() => navigate(`/organizador/${id}/editar`)} />}
     </div>
@@ -661,6 +661,96 @@ const EMPTY_CENTER: CenterDraft = {
   photoUrl: '',
 };
 
+// Selector de horario: guarda el mismo formato de texto libre que ya usa el
+// backend ("Lun-Vie 8:00-18:00"), solo cambia cómo el organizador lo arma.
+const OPENING_DAYS = [
+  { code: 'Lun', label: 'Lun' },
+  { code: 'Mar', label: 'Mar' },
+  { code: 'Mie', label: 'Mié' },
+  { code: 'Jue', label: 'Jue' },
+  { code: 'Vie', label: 'Vie' },
+  { code: 'Sab', label: 'Sáb' },
+  { code: 'Dom', label: 'Dom' },
+];
+const OPENING_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const value = `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`;
+  return { value, label: value };
+});
+function parseOpeningHours(raw: string): { days: string[]; start: string; end: string } | null {
+  const m = raw.trim().match(/^([A-Za-zÁáÉéÍíÓóÚúñÑ,\s-]+?)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/);
+  if (!m) return null;
+  const [, dayPart, start, end] = m;
+  const codes = OPENING_DAYS.map((d) => d.code);
+  const norm = (s: string) => s.trim().replace(/é/gi, 'e').replace(/á/gi, 'a');
+  let days: string[] = [];
+  const rangeMatch = dayPart.match(/^(\S+)\s*-\s*(\S+)$/);
+  if (rangeMatch) {
+    const i1 = codes.findIndex((c) => c.toLowerCase() === norm(rangeMatch[1]).toLowerCase());
+    const i2 = codes.findIndex((c) => c.toLowerCase() === norm(rangeMatch[2]).toLowerCase());
+    if (i1 >= 0 && i2 >= 0 && i2 >= i1) days = codes.slice(i1, i2 + 1);
+  } else {
+    days = dayPart
+      .split(',')
+      .map((s) => norm(s))
+      .map((s) => codes.find((c) => c.toLowerCase() === s.toLowerCase()))
+      .filter((c): c is string => !!c);
+  }
+  if (!days.length) return null;
+  return { days, start, end };
+}
+function serializeOpeningHours(days: string[], start: string, end: string): string {
+  if (!days.length) return '';
+  const codes = OPENING_DAYS.map((d) => d.code);
+  const idxs = days.map((d) => codes.indexOf(d)).sort((a, b) => a - b);
+  const contiguous = idxs.every((v, i) => i === 0 || v === idxs[i - 1] + 1);
+  const dayStr =
+    contiguous && idxs.length > 1
+      ? `${codes[idxs[0]]}-${codes[idxs[idxs.length - 1]]}`
+      : idxs.map((i) => codes[i]).join(', ');
+  return `${dayStr} ${start}-${end}`;
+}
+function OpeningHoursPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parsed = parseOpeningHours(value) ?? { days: [] as string[], start: '08:00', end: '18:00' };
+  const toggleDay = (code: string) => {
+    const days = parsed.days.includes(code) ? parsed.days.filter((d) => d !== code) : [...parsed.days, code];
+    onChange(serializeOpeningHours(days, parsed.start, parsed.end));
+  };
+  return (
+    <div>
+      <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 500, marginBottom: 4, display: 'block' }}>
+        Horario de atención <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(opcional)</span>
+      </label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {OPENING_DAYS.map((d) => (
+          <Chip key={d.code} active={parsed.days.includes(d.code)} onClick={() => toggleDay(d.code)}>
+            {d.label}
+          </Chip>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 6, alignItems: 'center' }}>
+        <Select
+          options={OPENING_TIME_OPTIONS}
+          value={parsed.start}
+          disabled={!parsed.days.length}
+          onChange={(e) => onChange(serializeOpeningHours(parsed.days, e.target.value, parsed.end))}
+        />
+        <span style={{ color: 'var(--text-muted)' }}>a</span>
+        <Select
+          options={OPENING_TIME_OPTIONS}
+          value={parsed.end}
+          disabled={!parsed.days.length}
+          onChange={(e) => onChange(serializeOpeningHours(parsed.days, parsed.start, e.target.value))}
+        />
+      </div>
+      {value && !parsed.days.length && (
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+          Horario actual: "{value}". Elige días para reemplazarlo con el selector.
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const t = useT();
   const toast = useToast();
@@ -823,7 +913,7 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
             onChange={(v) => setDraft({ photoUrl: v })}
             previewHeight={160}
           />
-          <Input label={t('mgr.hours')} placeholder={t('mgr.hoursPlaceholder')} value={draft.openingHours} onChange={(e) => setDraft({ openingHours: e.target.value })} />
+          <OpeningHoursPicker value={draft.openingHours} onChange={(v) => setDraft({ openingHours: v })} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             <Input label={t('ops.contactPhone')} type="tel" value={draft.contactPhone} onChange={(e) => setDraft({ contactPhone: e.target.value })} />
             <Input
@@ -1108,6 +1198,13 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
           <div style={{ marginTop: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-3)' }}>
             <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-sm)', marginBottom: 6 }}>
               Ingresar producto
+            </div>
+            {/* Política de plataforma: el backend también lo rechaza. */}
+            <div style={{ marginBottom: 'var(--sp-2)' }}>
+              <Banner tone="warn">
+                No se reciben medicamentos: no registres fármacos en el inventario
+                (los botiquines de primeros auxilios sí se aceptan).
+              </Banner>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr', gap: 6 }}>
               <div>
@@ -2149,7 +2246,7 @@ function Metas({ campaign, ops }: { campaign: Campaign; ops: CampaignOperations 
 }
 
 /* ───────── Donaciones (dinero / especies) + alta manual ───────── */
-function Donaciones({ id }: { id?: string }) {
+function Donaciones({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const t = useT();
   const toast = useToast();
   const { data, isLoading } = useCampaignDonations(id);
@@ -2162,6 +2259,7 @@ function Donaciones({ id }: { id?: string }) {
   const [amount, setAmount] = useState('');
   const [qty, setQty] = useState('1');
   const [desc, setDesc] = useState('');
+  const [centerId, setCenterId] = useState('');
   const [donor, setDonor] = useState('');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
@@ -2194,17 +2292,21 @@ function Donaciones({ id }: { id?: string }) {
       } else {
         body.quantity = Number(qty);
         body.paymentMethod = 'IN_KIND';
+        body.centerId = centerId;
       }
       const created = await createDonation.mutateAsync(body);
       if (dType === 'MONEY') await confirmPayment.mutateAsync({ id: created.id, reference: 'MANUAL' });
       toast.success(t('toast.donationDone'));
-      setAmount(''); setQty('1'); setDesc(''); setDonor(''); setPhone(''); setOpen(false);
+      setAmount(''); setQty('1'); setDesc(''); setCenterId(''); setDonor(''); setPhone(''); setOpen(false);
     } catch (e) {
       setError(apiErrorMessage(e));
     }
   };
 
-  const valid = dType === 'MONEY' ? Number(amount) > 0 : Number(qty) > 0 && desc.trim().length > 0;
+  const valid =
+    dType === 'MONEY'
+      ? Number(amount) > 0
+      : Number(qty) > 0 && desc.trim().length > 0 && !!centerId;
 
   return (
     <div>
@@ -2232,10 +2334,22 @@ function Donaciones({ id }: { id?: string }) {
           {dType === 'MONEY' ? (
             <Input label={t('donate.amount')} type="number" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} />
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 6 }}>
-              <Input label={t('donate.quantity')} type="number" inputMode="numeric" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-              <Input label={t('donate.whatDonate')} value={desc} onChange={(e) => setDesc(e.target.value)} />
-            </div>
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 6 }}>
+                <Input label={t('donate.quantity')} type="number" inputMode="numeric" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
+                <Input label={t('donate.whatDonate')} value={desc} onChange={(e) => setDesc(e.target.value)} />
+              </div>
+              <Select
+                label="Centro de acopio"
+                value={centerId}
+                onChange={(e) => setCenterId(e.target.value)}
+                options={ops.centers.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Elige un centro…"
+              />
+              {ops.centers.length === 0 && (
+                <Banner tone="warn">Crea primero un centro de acopio en la pestaña "Centros".</Banner>
+              )}
+            </>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             <Input label={t('donate.name')} value={donor} onChange={(e) => setDonor(e.target.value)} />
@@ -2259,8 +2373,53 @@ function Donaciones({ id }: { id?: string }) {
                   <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                     {d.anonymous ? t('donate.anonymous') : d.donorName ?? d.donorEmail ?? d.donorPhone ?? '—'} · {d.code}
                   </div>
+                  {d.type === 'MONEY' && d.payment?.payerAccountNumber && (
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                      Cuenta origen: {d.payment.payerAccountNumber}
+                    </div>
+                  )}
+                  {/* Con qué cotejar el abono antes de acreditarlo. */}
+                  {d.type === 'MONEY' && (d.payment?.operationNumber || d.payment?.receiptUrl) && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: 'var(--fs-xs)',
+                        color: 'var(--text-muted)',
+                        marginTop: 2,
+                      }}
+                    >
+                      {d.payment?.operationNumber && <span>Operación: {d.payment.operationNumber}</span>}
+                      {d.payment?.receiptUrl && (
+                        <a
+                          href={d.payment.receiptUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}
+                        >
+                          <Icon name="image" size={13} /> Ver comprobante
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {d.type === 'MONEY' && (
+                    <Badge tone={d.payment?.status === 'PAID' ? 'success' : 'warn'}>
+                      {d.payment?.status === 'PAID' ? 'Acreditado' : 'No acreditado'}
+                    </Badge>
+                  )}
+                  {d.type === 'MONEY' && d.payment?.status !== 'PAID' && (
+                    <Button
+                      size="sm"
+                      icon="check"
+                      loading={confirmPayment.isPending}
+                      onClick={() => run(() => confirmPayment.mutateAsync({ id: d.id, reference: 'MANUAL' }))}
+                    >
+                      Acreditar
+                    </Button>
+                  )}
                   <StatusBadge status={d.status} />
                   <div style={{ width: 140 }}>
                     <Select

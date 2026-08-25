@@ -283,7 +283,10 @@ export function useCreateCenter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<Center>) => api.post<Center>('/centers', body).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['centers'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['centers'] });
+      qc.invalidateQueries({ queryKey: ['campaign'] });
+    },
   });
 }
 export function useUpdateCenter() {
@@ -438,6 +441,7 @@ export interface CreateDonationBody {
   donorName?: string;
   donorEmail?: string;
   donorPhone?: string;
+  donorAccountNumber?: string;
 }
 export function useCreateDonation() {
   const qc = useQueryClient();

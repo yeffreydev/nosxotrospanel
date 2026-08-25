@@ -459,6 +459,11 @@ function AddItemModal({
     >
       <div className={s.formGrid}>
         {error && <Banner tone="error">{error}</Banner>}
+        {/* Política de plataforma: el backend también lo rechaza. */}
+        <Banner tone="warn">
+          No se reciben medicamentos: no registres fármacos en el inventario
+          (los botiquines de primeros auxilios sí se aceptan).
+        </Banner>
         <Input
           label="Artículo"
           placeholder="Ej. Frazadas de lana"

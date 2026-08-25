@@ -17,7 +17,6 @@ import {
 } from '../components/ui';
 import {
   useCreateDonation,
-  useConfirmPayment,
   useEmergencies,
   useCampaigns,
   useCenters,
@@ -46,7 +45,6 @@ export default function Donate() {
   const toast = useToast();
 
   const createDonation = useCreateDonation();
-  const confirmPayment = useConfirmPayment();
   const { data: emergencies } = useEmergencies({ status: 'ACTIVE' });
   const { data: campaigns } = useCampaigns({ status: 'ACTIVE' });
   const { data: centers } = useCenters();
@@ -54,6 +52,7 @@ export default function Donate() {
   const [step, setStep] = useState<Step>('type');
   const [type, setType] = useState<DonationType | null>(null);
   const [amount, setAmount] = useState<number | ''>('');
+  const [accountNumber, setAccountNumber] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [hours, setHours] = useState(2);
   const [description, setDescription] = useState('');
@@ -102,6 +101,7 @@ export default function Donate() {
     setStep('type');
     setType(null);
     setAmount('');
+    setAccountNumber('');
     setQuantity(1);
     setHours(2);
     setDescription('');
@@ -120,12 +120,14 @@ export default function Donate() {
 
   function chooseType(tp: DonationType) {
     setType(tp);
+    // Especies siempre va a un centro de acopio puntual: el backend lo exige.
+    if (tp === 'GOODS') setDestType('center');
     setStep('details');
   }
 
   const detailsValid =
     type === 'MONEY'
-      ? typeof amount === 'number' && amount > 0
+      ? typeof amount === 'number' && amount > 0 && accountNumber.trim().length > 0
       : type === 'GOODS'
         ? quantity > 0 && description.trim().length > 0
         : hours > 0 && donorPhone.trim().length >= 6;
@@ -147,6 +149,7 @@ export default function Donate() {
     if (type === 'MONEY') {
       body.amount = typeof amount === 'number' ? amount : 0;
       body.paymentMethod = paymentMethod;
+      body.donorAccountNumber = accountNumber.trim();
     } else if (type === 'GOODS') {
       body.quantity = quantity;
       body.paymentMethod = 'IN_KIND';
@@ -156,10 +159,9 @@ export default function Donate() {
     }
 
     try {
+      // No se confirma el pago aquí: queda "no acreditado" hasta que un
+      // administrador coteje la transferencia y la acredite.
       const donation = await createDonation.mutateAsync(body);
-      if (type === 'MONEY') {
-        await confirmPayment.mutateAsync({ id: donation.id, reference: 'SIM' });
-      }
       setCode(donation.code);
       setStep('success');
       toast.success(t('toast.donationDone'), { title: t('donate.successTitle') });
@@ -196,7 +198,7 @@ export default function Donate() {
     return emergencyOptions.find((o) => o.value === emergencyId)?.label;
   }
 
-  const submitting = createDonation.isPending || confirmPayment.isPending;
+  const submitting = createDonation.isPending;
 
   if (step === 'success') {
     return (
@@ -303,6 +305,15 @@ export default function Donate() {
                 placeholder="0"
               />
             </div>
+            <div className={css.field}>
+              <Input
+                label="Tu número de cuenta o celular Yape/Plin"
+                hint="Con qué transferiste, para que el administrador acredite el pago"
+                placeholder="987654321 o 191-2345678-0-12"
+                value={accountNumber}
+                onChange={(e) => setAccountNumber(e.target.value)}
+              />
+            </div>
             <Button block icon="arrowRight" iconRight="arrowRight" disabled={!detailsValid} onClick={goNext}>
               {t('common.continue')}
             </Button>
@@ -312,6 +323,12 @@ export default function Donate() {
         {step === 'details' && type === 'GOODS' && (
           <>
             <h1 className={css.stepTitle}>{t('donate.goods')}</h1>
+            <div className={css.field}>
+              <Banner tone="warn">
+                No recibimos medicamentos: los centros de acopio no aceptan fármacos de
+                ningún tipo (los botiquines de primeros auxilios sí se reciben).
+              </Banner>
+            </div>
             <div className={css.field}>
               <NumberStepper label={t('donate.quantity')} value={quantity} min={1} max={999} onChange={setQuantity} />
             </div>
@@ -379,17 +396,21 @@ export default function Donate() {
         {step === 'destination' && (
           <>
             <h1 className={css.stepTitle}>{t('donate.destination')}</h1>
-            <div className={css.chipRow}>
-              <Chip active={destType === 'emergency'} onClick={() => setDestType('emergency')}>
-                {t('donate.destEmergency')}
-              </Chip>
-              <Chip active={destType === 'campaign'} onClick={() => setDestType('campaign')}>
-                {t('donate.destCampaign')}
-              </Chip>
-              <Chip active={destType === 'center'} onClick={() => setDestType('center')}>
-                {t('donate.destCenter')}
-              </Chip>
-            </div>
+            {type === 'GOODS' ? (
+              <Banner tone="info">{t('donate.destCenter')}: elige a qué centro de acopio va tu donación.</Banner>
+            ) : (
+              <div className={css.chipRow}>
+                <Chip active={destType === 'emergency'} onClick={() => setDestType('emergency')}>
+                  {t('donate.destEmergency')}
+                </Chip>
+                <Chip active={destType === 'campaign'} onClick={() => setDestType('campaign')}>
+                  {t('donate.destCampaign')}
+                </Chip>
+                <Chip active={destType === 'center'} onClick={() => setDestType('center')}>
+                  {t('donate.destCenter')}
+                </Chip>
+              </div>
+            )}
             <div className={css.field}>
               {destType === 'emergency' && (
                 <Select
@@ -436,7 +457,7 @@ export default function Donate() {
                 </Banner>
               )}
             <div style={{ height: 'var(--sp-3)' }} />
-            <Button block iconRight="arrowRight" onClick={goNext}>
+            <Button block iconRight="arrowRight" disabled={type === 'GOODS' && !centerId} onClick={goNext}>
               {t('common.continue')}
             </Button>
           </>

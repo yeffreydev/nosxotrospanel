@@ -543,6 +543,15 @@
   color: var(--text);
   background: var(--surface);
 }
+.selectWrap select:hover:not(:disabled) {
+  border-color: var(--brand-400);
+  background: var(--surface);
+}
+.selectWrap select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--surface-3);
+}
 .selectArrow {
   position: absolute;
   right: var(--sp-4);
@@ -550,6 +559,15 @@
   transform: translateY(-50%);
   pointer-events: none;
   color: var(--text-muted);
+  transition: color var(--t-fast), transform var(--t-fast);
+}
+/* La flecha acompaña al campo: se marca al pasar el cursor y al enfocar. */
+.selectWrap:hover .selectArrow,
+.selectWrap select:focus ~ .selectArrow {
+  color: var(--brand-600);
+}
+.selectWrap select:focus ~ .selectArrow {
+  transform: translateY(-50%) rotate(180deg);
 }
 .fieldError {
   font-size: var(--fs-xs);

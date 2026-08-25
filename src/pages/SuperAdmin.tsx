@@ -18,6 +18,26 @@ interface Organizer {
   isActive: boolean;
   organization?: { id: string; name: string; ruc?: string | null; verified: boolean } | null;
 }
+interface SaPayment {
+  id: string;
+  code: string;
+  amount: number | null;
+  currency: string;
+  createdAt: string;
+  anonymous: boolean;
+  donorName?: string | null;
+  donorEmail?: string | null;
+  campaign?: { id: string; slug: string; title: string } | null;
+  payment: {
+    status: 'PENDING' | 'PAID' | string;
+    method: string;
+    payerAccountNumber?: string | null;
+    operationNumber?: string | null;
+    receiptUrl?: string | null;
+    reference?: string | null;
+    paidAt?: string | null;
+  } | null;
+}
 interface SaCampaign {
   id: string;
   slug: string;
@@ -28,6 +48,15 @@ interface SaCampaign {
   organizer?: { id: string; fullName: string; email: string };
   donationsCount: number;
   zonesCount: number;
+}
+
+// Error con el status HTTP a mano: la sesión solo se da por vencida con un 401
+// real, no por cualquier mensaje que mencione "superadmin" (un 404 de un
+// backend desactualizado deslogueaba al instante).
+class SaError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
 }
 
 async function saFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
@@ -47,7 +76,7 @@ async function saFetch<T>(path: string, token: string, init?: RequestInit): Prom
     } catch {
       /* sin cuerpo */
     }
-    throw new Error(msg);
+    throw new SaError(msg, res.status);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -128,24 +157,29 @@ function LoginView({ onToken }: { onToken: (t: string) => void }) {
 function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: () => void; onExpired: () => void }) {
   const [organizers, setOrganizers] = useState<Organizer[]>([]);
   const [campaigns, setCampaigns] = useState<SaCampaign[]>([]);
+  const [payments, setPayments] = useState<SaPayment[]>([]);
   const [error, setError] = useState('');
   const [toDelete, setToDelete] = useState<SaCampaign | null>(null);
   const [toUnverify, setToUnverify] = useState<Organizer | null>(null);
+  const [toConfirmPay, setToConfirmPay] = useState<SaPayment | null>(null);
+  const [showPaid, setShowPaid] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [orgs, camps] = await Promise.all([
+      const [orgs, camps, pays] = await Promise.all([
         saFetch<Organizer[]>('/organizers', token),
         saFetch<SaCampaign[]>('/campaigns', token),
+        saFetch<SaPayment[]>('/payments', token),
       ]);
       setOrganizers(orgs);
       setCampaigns(camps);
+      setPayments(pays);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error';
       setError(msg);
-      if (/superadmin/i.test(msg) || /401/.test(msg)) onExpired();
+      if (err instanceof SaError && err.status === 401) onExpired();
     }
   }, [token, onExpired]);
 
@@ -190,6 +224,23 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
     }
   };
 
+  const doConfirmPay = async () => {
+    if (!toConfirmPay) return;
+    setBusy(true);
+    try {
+      await saFetch(`/payments/${toConfirmPay.id}/confirm`, token, {
+        method: 'POST',
+        body: '{}',
+      });
+      setToConfirmPay(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doDelete = async () => {
     if (!toDelete) return;
     setBusy(true);
@@ -214,6 +265,77 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
       </div>
 
       {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error" title="Error">{error}</Banner></div>}
+
+      {/* Pagos: todo el dinero que llega, para cotejarlo y acreditarlo aquí. */}
+      {(() => {
+        const pending = payments.filter((p) => p.payment?.status !== 'PAID');
+        const paid = payments.filter((p) => p.payment?.status === 'PAID');
+        const visible = showPaid ? payments : pending;
+        return (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: 'var(--sp-4) 0 var(--sp-3)' }}>
+              <h2 style={{ fontSize: 'var(--fs-lg)', margin: 0 }}>
+                <Icon name="chart" size={18} /> Pagos por verificar ({pending.length})
+              </h2>
+              <Button size="sm" variant="ghost" onClick={() => setShowPaid((v) => !v)}>
+                {showPaid ? 'Ocultar acreditados' : `Ver acreditados (${paid.length})`}
+              </Button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+              {visible.map((p) => {
+                const isPaid = p.payment?.status === 'PAID';
+                return (
+                  <Card key={p.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <strong>{formatSoles(p.amount ?? 0)}</strong>{' '}
+                        {isPaid
+                          ? <Badge tone="success" dot>Acreditado</Badge>
+                          : <Badge tone="warn" dot>Por verificar</Badge>}{' '}
+                        <Badge tone="neutral">{p.payment?.method ?? '—'}</Badge>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                          {p.anonymous ? 'Donante anónimo' : (p.donorName ?? 'Sin nombre')}
+                          {p.donorEmail ? ` (${p.donorEmail})` : ''}
+                          {p.campaign ? ` · ${p.campaign.title}` : ' · sin campaña'}
+                          {` · ${new Date(p.createdAt).toLocaleString()}`}
+                        </div>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                          Cuenta origen: {p.payment?.payerAccountNumber ?? '—'}
+                          {' · '}Operación: {p.payment?.operationNumber ?? '—'}
+                          {' · '}Código: {p.code}
+                          {isPaid && p.payment?.paidAt ? ` · acreditado el ${new Date(p.payment.paidAt).toLocaleString()}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexShrink: 0 }}>
+                        {p.payment?.receiptUrl && (
+                          <a
+                            href={p.payment.receiptUrl}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            style={{ fontSize: 'var(--fs-sm)', color: 'var(--brand-700)', fontWeight: 'var(--fw-bold)' }}
+                          >
+                            Ver voucher
+                          </a>
+                        )}
+                        {!isPaid && (
+                          <Button size="sm" icon="check" onClick={() => setToConfirmPay(p)}>
+                            Acreditar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+              {visible.length === 0 && (
+                <p style={{ color: 'var(--text-muted)' }}>
+                  {showPaid ? 'Sin pagos registrados.' : 'No hay pagos pendientes de verificar.'}
+                </p>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Organizadores */}
       <h2 style={{ fontSize: 'var(--fs-lg)', margin: 'var(--sp-4) 0 var(--sp-3)' }}>
@@ -301,6 +423,21 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
         loading={busy}
         onConfirm={doUnverify}
         onCancel={() => setToUnverify(null)}
+      />
+
+      <ConfirmDialog
+        open={!!toConfirmPay}
+        title="Acreditar pago"
+        message={
+          toConfirmPay
+            ? `¿Acreditar ${formatSoles(toConfirmPay.amount ?? 0)} de ${toConfirmPay.anonymous ? 'donante anónimo' : (toConfirmPay.donorName ?? 'sin nombre')}${toConfirmPay.campaign ? ` para "${toConfirmPay.campaign.title}"` : ''}? El aporte sumará al recaudado público de la campaña. Verifica antes el abono en el estado de cuenta.`
+            : undefined
+        }
+        confirmLabel="Acreditar"
+        cancelLabel="Cancelar"
+        loading={busy}
+        onConfirm={doConfirmPay}
+        onCancel={() => setToConfirmPay(null)}
       />
 
       <ConfirmDialog

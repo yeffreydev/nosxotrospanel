@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import css from './auth.module.css';
 import { Card, Input, PasswordInput, Button, Banner } from '../components/ui';
 import { useLogin, useGoogleLogin } from '../hooks/api';
@@ -16,6 +16,7 @@ export default function Login() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const [params] = useSearchParams();
   const login = useLogin();
   const googleLogin = useGoogleLogin();
   const setSession = useAuth((s) => s.setSession);
@@ -24,8 +25,12 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  // Ruta de origen (p.ej. /organizador/nueva): tras login se vuelve ahí.
-  const from = (location.state as LocationState | null)?.from;
+  // Ruta de origen (p.ej. /organizador/nueva): tras login se vuelve ahí. Llega
+  // por state (navegación interna) o por ?next= (viene de la landing pública).
+  const nextParam = params.get('next');
+  const from =
+    (location.state as LocationState | null)?.from ??
+    (nextParam?.startsWith('/') && !nextParam.startsWith('//') ? nextParam : undefined);
 
   function finish(data: Parameters<typeof setSession>[0]) {
     setSession(data);

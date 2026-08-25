@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHead } from '../../components/layout/AppShell';
 import {
   Button,
@@ -20,11 +20,12 @@ import {
   useCreateCampaign,
   useUpdateCampaign,
   useCreateCenter,
+  useCategories,
 } from '../../hooks/api';
-import type { CreateCampaignBody } from '../../hooks/api';
+import type { CreateCampaignBody, CampaignNeedBody } from '../../hooks/api';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { useT } from '../../lib/i18n';
-import { apiErrorMessage } from '../../lib/api';
+import { api, apiErrorMessage } from '../../lib/api';
 import { CAMPAIGN_CATEGORY } from '../../lib/format';
 import { AQP, coordsFromMapUrl, isHttpUrl, loadPeruUbigeo, mapUrlFromCoords } from '../../lib/geo';
 import type { PeruUbigeo } from '../../lib/geo';
@@ -59,7 +60,22 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 export default function CampaignForm() {
   const { id } = useParams();
+  const [params] = useSearchParams();
   const isEdit = !!id;
+
+  // Borrador que llega desde la landing (?title=&category=&goal=). Solo aplica
+  // al crear: en edición manda lo guardado.
+  const draftTitle = isEdit ? '' : (params.get('title') ?? '');
+  const draftCategory = (() => {
+    if (isEdit) return null;
+    const v = params.get('category') as CampaignCategory | null;
+    return v && v in CAMPAIGN_CATEGORY ? v : null;
+  })();
+  const draftGoal = (() => {
+    if (isEdit) return '';
+    const n = Number(params.get('goal'));
+    return Number.isFinite(n) && n > 0 ? n : '';
+  })();
   const navigate = useNavigate();
   const t = useT();
   const toast = useToast();
@@ -70,16 +86,25 @@ export default function CampaignForm() {
   const createCenter = useCreateCenter();
   const geo = useGeolocation();
 
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(draftTitle);
   const [summary, setSummary] = useState('');
   const [story, setStory] = useState('');
-  const [category, setCategory] = useState<CampaignCategory>('COMMUNITY');
+  const [category, setCategory] = useState<CampaignCategory>(draftCategory ?? 'COMMUNITY');
   const [coverPhoto, setCoverPhoto] = useState('');
   const [deadline, setDeadline] = useState('');
 
   // Meta de recaudación (obligatoria, mínimo 10,000 soles)
   const MIN_GOAL = 10000;
-  const [goalAmount, setGoalAmount] = useState<number | ''>('');
+  const [goalAmount, setGoalAmount] = useState<number | ''>(draftGoal);
+
+  // Metas en especie (opcionales): "500 frazadas", "1000 litros de agua"…
+  // Se crean como Need de la campaña recién creada; su progreso lo llena el
+  // inventario de los centros de acopio. Solo al crear: al editar se gestionan
+  // desde el panel de la campaña.
+  type GoodsGoalDraft = { title: string; targetQty: string; unit: string; categoryId: string };
+  const emptyGoodsGoal: GoodsGoalDraft = { title: '', targetQty: '', unit: '', categoryId: '' };
+  const [goodsGoals, setGoodsGoals] = useState<GoodsGoalDraft[]>([]);
+  const { data: categories } = useCategories();
 
   // Ubicación de la campaña: con ella el backend crea la "zona principal".
   // Región/provincia/distrito se eligen de un selector (no texto libre); se
@@ -237,6 +262,13 @@ const errors: Record<string, string> = {
   volunteerGoal: volunteerGoal !== '' && !(typeof volunteerGoal === 'number' && volunteerGoal > 0)
     ? 'La meta de voluntarios debe ser mayor a 0.'
     : '',
+  goodsGoals: goodsGoals.some(
+    (g) =>
+      (g.title.trim() || g.targetQty.trim()) &&
+      !(g.title.trim().length >= 2 && Number(g.targetQty) > 0),
+  )
+    ? 'Completa cada meta en especie: qué necesitas y cuánto (o quita la fila vacía).'
+    : '',
   centerName: addCenter && centerName.trim().length < 2 ? 'Ponle un nombre al centro.' : '',
   centerAddress: addCenter && centerAddress.trim().length < 2 ? 'Escribe la dirección del centro.' : '',
   centerMapUrl:
@@ -299,6 +331,26 @@ const errors: Record<string, string> = {
     }
   }
 
+  // Crea las metas en especie sobre la campaña recién creada. Si alguna falla
+  // no bloquea la campaña: se puede agregar luego desde el panel.
+  async function maybeCreateNeeds(campaignId: string) {
+    if (isEdit) return;
+    const rows = goodsGoals.filter((g) => g.title.trim() && Number(g.targetQty) > 0);
+    for (const g of rows) {
+      const body: CampaignNeedBody = {
+        title: g.title.trim(),
+        targetQty: Number(g.targetQty),
+        unit: g.unit.trim() || undefined,
+        categoryId: g.categoryId || undefined,
+      };
+      try {
+        await api.post(`/campaigns/${campaignId}/needs`, body);
+      } catch (err) {
+        toast.warn(`La meta "${g.title.trim()}" no se pudo crear: ${apiErrorMessage(err)}`);
+      }
+    }
+  }
+
   async function save(status?: 'DRAFT' | 'ACTIVE') {
     setShowErrors(true);
     if (firstError) {
@@ -314,6 +366,7 @@ const errors: Record<string, string> = {
       } else {
         const created = await createCampaign.mutateAsync(buildBody(status));
         await maybeCreateCenter(created.id);
+        await maybeCreateNeeds(created.id);
         toast.success(status === 'ACTIVE' ? t('camp.published') : t('camp.draftSaved'));
         navigate(`/campanas/${created.slug}`);
       }
@@ -483,8 +536,11 @@ const errors: Record<string, string> = {
         </span>
       </Section>
 
-      {/* 2. Meta de recaudación (obligatoria) */}
-      <Section title="Meta de recaudación" hint="Tu campaña debe tener una meta mínima de 10,000 Soles.">
+      {/* 2. Metas de recaudación: dinero (obligatoria) + especies (opcionales) */}
+      <Section
+        title="Metas de recaudación"
+        hint="No solo dinero: agrega también metas en especie (frazadas, agua, alimentos…) y su progreso se llenará solo con lo que entre a tus centros de acopio."
+      >
         <Input
           required
           label={t('camp.fieldGoal')}
@@ -498,6 +554,97 @@ const errors: Record<string, string> = {
           error={err('goalAmount')}
           onChange={(e) => setGoalAmount(e.target.value === '' ? '' : Number(e.target.value))}
         />
+
+        {!isEdit && (
+          <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+            <div>
+              <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-sm)' }}>
+                Metas en especie ({t('common.optional')})
+              </div>
+              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', margin: '2px 0 0' }}>
+                Ej.: 500 frazadas, 1000 litros de agua. Recuerda: no se reciben medicamentos.
+              </p>
+            </div>
+            {goodsGoals.map((g, i) => {
+              const cat = (categories ?? []).find((c) => c.id === g.categoryId);
+              return (
+                <div
+                  key={i}
+                  style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: '2fr 1fr 1fr auto', alignItems: 'end' }}
+                >
+                  <Input
+                    label="¿Qué necesitas?"
+                    placeholder="Frazadas de lana"
+                    value={g.title}
+                    onChange={(e) =>
+                      setGoodsGoals((rows) => rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
+                    }
+                  />
+                  <Input
+                    label="Cantidad"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    placeholder="500"
+                    value={g.targetQty}
+                    onChange={(e) =>
+                      setGoodsGoals((rows) => rows.map((r, j) => (j === i ? { ...r, targetQty: e.target.value } : r)))
+                    }
+                  />
+                  <Select
+                    label="Categoría"
+                    placeholder="Elige"
+                    options={(categories ?? []).map((c) => ({
+                      value: c.id,
+                      label: `${c.icon ? `${c.icon} ` : ''}${c.name}`,
+                    }))}
+                    value={g.categoryId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const selected = (categories ?? []).find((c) => c.id === id);
+                      setGoodsGoals((rows) =>
+                        rows.map((r, j) =>
+                          j === i ? { ...r, categoryId: id, unit: r.unit || selected?.unit || '' } : r,
+                        ),
+                      );
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    icon="close"
+                    aria-label="Quitar meta"
+                    onClick={() => setGoodsGoals((rows) => rows.filter((_, j) => j !== i))}
+                  />
+                  {cat?.unit && (
+                    <span style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                      Se medirá en: {g.unit || cat.unit}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {err('goodsGoals') && (
+              <Banner tone="error">{err('goodsGoals')}</Banner>
+            )}
+            <div>
+              <Button
+                type="button"
+                variant="subtle"
+                icon="plus"
+                onClick={() => setGoodsGoals((rows) => [...rows, { ...emptyGoodsGoal }])}
+              >
+                Agregar meta en especie
+              </Button>
+            </div>
+          </div>
+        )}
+        {isEdit && (
+          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', margin: 0 }}>
+            Las metas en especie de una campaña existente se gestionan desde el panel de la campaña
+            (sección de metas), donde también ves su progreso.
+          </p>
+        )}
       </Section>
 
       {/* 3. Información de pago */}

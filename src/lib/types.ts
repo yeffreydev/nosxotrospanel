@@ -126,6 +126,10 @@ export interface Payment {
   status: PaymentStatus;
   amount?: number;
   reference?: string;
+  payerAccountNumber?: string;
+  // Prueba del abono que dejó el donante en la web pública.
+  operationNumber?: string;
+  receiptUrl?: string;
 }
 
 export interface Donation {

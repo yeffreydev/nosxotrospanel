@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import css from './auth.module.css';
-import { Card, Input, Button, Banner, RadioCard, Icon } from '../components/ui';
+import { Card, Input, PasswordInput, Button, Banner, RadioCard, Icon } from '../components/ui';
 import type { IconName } from '../components/ui';
 import { useRegister, useGoogleLogin, useCreateOrganization } from '../hooks/api';
 import { useAuth, ROLE_HOME } from '../store/auth';
@@ -19,32 +19,49 @@ const ROLES: { value: Role; icon: IconName }[] = [
 
 const TOTAL_STEPS = 2;
 
+// Destino tras registrarse. Solo rutas internas: un "next" externo sería un
+// redirect abierto desde la landing pública.
+function safeNext(value: string | null): string | undefined {
+  if (!value) return undefined;
+  return value.startsWith('/') && !value.startsWith('//') ? value : undefined;
+}
+
 export default function Register() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
   // Origen (p.ej. /organizador/nueva): tras registrarse se va directo ahí.
-  const from = (location.state as { from?: string } | null)?.from;
+  // Puede venir por state (navegación interna) o por ?next= (landing pública).
+  const nextParam = safeNext(params.get('next'));
+  const from = (location.state as { from?: string } | null)?.from ?? nextParam;
   const register = useRegister();
   const googleLogin = useGoogleLogin();
   const createOrg = useCreateOrganization();
   const setSession = useAuth((s) => s.setSession);
 
   const initialRole = (params.get('role') as Role | null) ?? 'DONOR';
-  const [step, setStep] = useState<1 | 2>(1);
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  // Datos que llegan prellenados desde la landing: se salta la elección de rol.
+  const prefilled = ['name', 'email', 'phone', 'org', 'ruc'].some((k) => !!params.get(k));
+  const [step, setStep] = useState<1 | 2>(prefilled ? 2 : 1);
+  const [fullName, setFullName] = useState(params.get('name') ?? '');
+  const [email, setEmail] = useState(params.get('email') ?? '');
   const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
-  const [orgName, setOrgName] = useState('');
-  const [ruc, setRuc] = useState('');
+  const [phone, setPhone] = useState(params.get('phone') ?? '');
+  const [orgName, setOrgName] = useState(params.get('org') ?? '');
+  const [ruc, setRuc] = useState((params.get('ruc') ?? '').replace(/\D/g, '').slice(0, 11));
   const [role, setRole] = useState<Role>(
     ROLES.some((r) => r.value === initialRole) ? initialRole : 'DONOR',
   );
   const [error, setError] = useState('');
 
   const isOrg = role === 'MANAGER';
+
+  // Con sesión abierta no hay nada que registrar: al destino pedido.
+  const user = useAuth((s) => s.user);
+  useEffect(() => {
+    if (user && from) navigate(from, { replace: true });
+  }, [user, from, navigate]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -53,29 +70,48 @@ export default function Register() {
       setError(t('auth.rucRequired'));
       return;
     }
+    let data;
     try {
-      const data = await register.mutateAsync({
+      data = await register.mutateAsync({
         fullName,
         email,
         password,
         phone: phone || undefined,
         role,
       });
-      setSession(data);
-      // Organización (RUC obligatorio) para gestores/ONG.
-      if (isOrg) {
+    } catch (err) {
+      // El backend responde con el dato exacto en conflicto (teléfono o email
+      // duplicado): se muestra tal cual y además marcado en el campo.
+      setError(apiErrorMessage(err));
+      return;
+    }
+    setSession(data);
+    // Organización (RUC obligatorio) para gestores/ONG.
+    if (isOrg) {
+      try {
         await createOrg.mutateAsync({
           name: orgName.trim(),
           ruc: ruc.trim(),
           contactEmail: email || undefined,
           contactPhone: phone || undefined,
         });
+      } catch (err) {
+        // La cuenta ya quedó creada: sin esta aclaración la persona reintenta
+        // todo el formulario y choca con "email ya registrado".
+        setError(
+          `Tu cuenta se creó, pero la organización no: ${apiErrorMessage(err)} Puedes iniciar sesión y completar tu organización desde tu panel.`,
+        );
+        return;
       }
-      navigate(from ?? ROLE_HOME[data.user.role] ?? '/', { replace: true });
-    } catch (err) {
-      setError(apiErrorMessage(err));
     }
+    navigate(from ?? ROLE_HOME[data.user.role] ?? '/', { replace: true });
   }
+
+  // Conflictos que devuelve el backend (409): además del banner, se marca el
+  // campo exacto para que la persona sepa qué dato cambiar.
+  const phoneFieldError = /tel[ée]fono/i.test(error) ? error : undefined;
+  const emailFieldError =
+    !phoneFieldError && /email|correo/i.test(error) ? error : undefined;
 
   async function onGoogle(idToken: string) {
     setError('');
@@ -194,12 +230,12 @@ export default function Register() {
               required
               autoComplete="email"
               value={email}
+              error={emailFieldError}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tu@correo.com"
             />
-            <Input
+            <PasswordInput
               label={t('auth.password')}
-              type="password"
               required
               minLength={6}
               autoComplete="new-password"
@@ -213,6 +249,7 @@ export default function Register() {
               type="tel"
               autoComplete="tel"
               value={phone}
+              error={phoneFieldError}
               onChange={(e) => setPhone(e.target.value)}
             />
 
@@ -249,7 +286,8 @@ export default function Register() {
       </Card>
 
       <p className={css.foot}>
-        {t('auth.hasAccount')} <Link to="/login">{t('auth.login')}</Link>
+        {t('auth.hasAccount')}{' '}
+        <Link to={from ? `/login?next=${encodeURIComponent(from)}` : '/login'}>{t('auth.login')}</Link>
       </p>
     </div>
   );
