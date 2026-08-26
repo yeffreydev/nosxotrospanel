@@ -1,0 +1,141 @@
+/* Mini dashboard de centros de acopio + almacén central */
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.card {
+  margin-bottom: var(--sp-5);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.title {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-700);
+}
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  flex-shrink: 0;
+}
+.dotAcopio {
+  background: var(--brand-600);
+}
+.dotCentral {
+  background: var(--info-600);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) 1fr minmax(150px, auto);
+  gap: var(--sp-4);
+  align-items: center;
+  padding: var(--sp-3) 0;
+  border-bottom: 1px dashed var(--line);
+}
+.row:last-child {
+  border-bottom: none;
+}
+.name {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.unit {
+  color: var(--text-muted);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-xs);
+}
+.split {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Barra apilada: acopio + almacén sobre el track; hueco de 2px entre bolsas. */
+.bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  background: var(--surface-3);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.segAcopio {
+  height: 100%;
+  background: var(--brand-600);
+  border-radius: 0 4px 4px 0;
+  transition: width var(--t-slow);
+}
+.segAcopio:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.segCentral {
+  height: 100%;
+  background: var(--info-600);
+  border-radius: 0 4px 4px 0;
+  transition: width var(--t-slow);
+}
+
+.qty {
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.qtyLine {
+  margin-bottom: 2px;
+}
+.more {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--sp-3);
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr auto;
+  }
+  .row .bar {
+    grid-column: 1 / -1;
+  }
+}

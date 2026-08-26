@@ -1,0 +1,131 @@
+/* Comprobante de donación en especie: se ve en el modal y se imprime tal cual. */
+
+.receipt {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-5);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.brandRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 2px solid var(--ink-700);
+}
+.brand {
+  font-weight: var(--fw-black);
+  font-size: var(--fs-lg);
+  letter-spacing: 0.02em;
+}
+.docTitle {
+  text-align: right;
+}
+.docTitle strong {
+  display: block;
+  font-size: var(--fs-base);
+}
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-5);
+  margin: var(--sp-4) 0;
+}
+.field span {
+  display: block;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.field strong {
+  font-weight: var(--fw-semibold);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--sp-3) 0 var(--sp-4);
+}
+.table th {
+  text-align: left;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--ink-700);
+  padding: var(--sp-2) 0;
+}
+.table td {
+  padding: var(--sp-2) 0;
+  border-bottom: 1px dashed var(--line);
+}
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.signatures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-6);
+  margin-top: 56px;
+}
+.signature {
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.signature::before {
+  content: '';
+  display: block;
+  border-top: 1px solid var(--ink-700);
+  margin-bottom: var(--sp-2);
+}
+
+.footNote {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* ── Impresión ──
+   La copia que se imprime vive FUERA del modal (el modal anima con transform
+   y degrada el posicionamiento del área de impresión): oculta en pantalla,
+   es la única visible al imprimir. El área global .nx-print-area también la
+   usa el inventario del centro; mientras se imprime un comprobante, el body
+   lleva la marca nx-print-receipt y las demás áreas se silencian. */
+.printCopy {
+  display: none;
+}
+@media print {
+  /* El fondo de la app (gris verdoso) no debe salir en el papel. */
+  :global(body.nx-print-receipt) {
+    background: #fff !important;
+  }
+  :global(body.nx-print-receipt) :global(.nx-print-area:not(.nx-receipt)) {
+    display: none !important;
+  }
+  .printCopy {
+    display: block;
+  }
+  .printCopy .receipt {
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    background: #fff;
+    color: #111;
+  }
+}

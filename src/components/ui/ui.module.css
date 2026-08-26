@@ -475,6 +475,9 @@
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  /* En rejillas densas, el campo debe poder encogerse por debajo de su
+     mínimo intrínseco (placeholders/options largos) sin desbordar. */
+  min-width: 0;
 }
 .label {
   font-size: var(--fs-sm);
@@ -498,6 +501,7 @@
 }
 .control {
   width: 100%;
+  min-width: 0;
   min-height: 50px;
   padding: 0 var(--sp-4);
   border-radius: var(--r-md);

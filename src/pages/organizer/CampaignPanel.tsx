@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Button,
@@ -13,6 +13,7 @@ import {
   Tabs,
   Modal,
   ConfirmDialog,
+  Checkbox,
   CenteredSpinner,
   ProgressBar,
   ImageUpload,
@@ -22,6 +23,9 @@ import {
 } from '../../components/ui';
 import { StatusBadge } from '../../components/StatusBadge';
 import { AvailabilityEditor } from '../../components/AvailabilityEditor';
+import { CentersSummary } from '../../components/CentersSummary';
+import { DonationReceiptModal, type ReceiptData } from '../../components/DonationReceipt';
+import { useAuth } from '../../store/auth';
 import {
   useCampaign,
   useCampaignOperations,
@@ -53,7 +57,6 @@ import {
   useDeleteCampaignNeed,
   useCampaignAvailability,
   useDeleteVolunteerSchedule,
-  useCreateDonation,
   useConfirmPayment,
   useUpdateDonationStatus,
   useBeneficiaries,
@@ -61,6 +64,7 @@ import {
   useUpdateBeneficiary,
   useDeleteBeneficiary,
   useDispatchCenterItem,
+  useTransferCenterItems,
   useCreateVolunteer,
   useAddVolunteerSchedule,
   useVolunteerSchedules,
@@ -129,7 +133,24 @@ function zoneStats(z: Zone) {
   const served = beneficiaries.filter((b) => b.status === 'SERVED').length;
   return { target, dispatched, assigned, served, beneficiaries: beneficiaries.length };
 }
-type TabKey = 'resumen' | 'metas' | 'zonas' | 'brigadas' | 'centros' | 'voluntarios' | 'donaciones' | 'beneficiarios' | 'ajustes';
+type TabKey = 'resumen' | 'zonas' | 'centros' | 'beneficiarios' | 'ajustes';
+
+/* Dos secciones lado a lado dentro de una pestaña; en angosto se apilan. */
+const TWO_COLS: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+  gap: 'var(--sp-4)',
+  alignItems: 'start',
+};
+
+function SectionTitle({ icon, label }: { icon: IconName; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', minHeight: 40 }}>
+      <Icon name={icon} size={18} />
+      <strong style={{ fontSize: 'var(--fs-base)' }}>{label}</strong>
+    </div>
+  );
+}
 
 async function shareUrl(url: string | undefined, toast: ReturnType<typeof useToast>, ok: string) {
   if (!url) return;
@@ -176,7 +197,9 @@ export default function CampaignPanel() {
   const ops = opsQ.data;
 
   return (
-    <div className="n-page" style={{ maxWidth: 820, margin: '0 auto' }}>
+    // 1080 en vez de 820: la pestaña de acopio pone centros y donaciones lado
+    // a lado y necesita el ancho; el resto de pestañas siguen siendo una columna.
+    <div className="n-page" style={{ maxWidth: 1080, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
         <Button variant="subtle" icon="chevronLeft" onClick={() => navigate('/organizador')}>
           {t('common.back')}
@@ -190,26 +213,42 @@ export default function CampaignPanel() {
           value={tab}
           onChange={(v) => setTab(v as TabKey)}
           items={[
-            { value: 'resumen', label: t('mgr.kpis'), icon: 'chart' },
-            { value: 'metas', label: 'Metas', icon: 'trophy' },
-            { value: 'zonas', label: t('ops.zones'), icon: 'pin' },
-            { value: 'brigadas', label: t('ops.brigades'), icon: 'users' },
-            { value: 'centros', label: t('ops.centers'), icon: 'box' },
-            { value: 'voluntarios', label: t('nav.volunteers'), icon: 'users' },
-            { value: 'donaciones', label: t('stats.donations'), icon: 'heart' },
+            { value: 'resumen', label: 'Indicadores y metas', icon: 'chart' },
+            { value: 'zonas', label: 'Zonas, equipos y voluntarios', icon: 'pin' },
+            { value: 'centros', label: 'Acopio y donaciones', icon: 'box' },
             { value: 'beneficiarios', label: t('nav.beneficiaries'), icon: 'users' },
             { value: 'ajustes', label: t('nav.settings'), icon: 'settings' },
           ]}
         />
       </div>
 
-      {tab === 'resumen' && <Resumen campaign={campaign} ops={ops} />}
-      {tab === 'metas' && <Metas campaign={campaign} ops={ops} />}
-      {tab === 'zonas' && <Zonas id={id} ops={ops} />}
-      {tab === 'brigadas' && <Brigadas id={id} ops={ops} />}
+      {/* Indicadores clave y metas de la campaña, lado a lado. */}
+      {tab === 'resumen' && (
+        <div style={TWO_COLS}>
+          <div style={{ minWidth: 0 }}>
+            <SectionTitle icon="chart" label={t('mgr.kpis')} />
+            <Resumen campaign={campaign} ops={ops} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <SectionTitle icon="trophy" label="Metas" />
+            <Metas campaign={campaign} ops={ops} />
+          </div>
+        </div>
+      )}
+      {/* Zonas con sus equipos a la izquierda; el padrón de voluntarios al lado. */}
+      {tab === 'zonas' && (
+        <div style={TWO_COLS}>
+          <div style={{ minWidth: 0 }}>
+            <SectionTitle icon="pin" label="Zonas y equipos" />
+            <Zonas id={id} ops={ops} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <SectionTitle icon="users" label={t('nav.volunteers')} />
+            <Voluntarios id={id} />
+          </div>
+        </div>
+      )}
       {tab === 'centros' && <Centros id={id} ops={ops} />}
-      {tab === 'voluntarios' && <Voluntarios id={id} />}
-      {tab === 'donaciones' && <Donaciones id={id} ops={ops} />}
       {tab === 'beneficiarios' && <Beneficiarios campaignId={id} emergencyId={campaign.emergencyId} ops={ops} />}
       {tab === 'ajustes' && <Ajustes campaign={campaign} onEdit={() => navigate(`/organizador/${id}/editar`)} />}
     </div>
@@ -260,10 +299,21 @@ function Zonas({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const updateZone = useUpdateZone(id);
   const deleteZone = useDeleteZone(id);
   const addNeed = useAddZoneNeed(id);
+  // Los equipos (brigadas) y sus voluntarios se organizan aquí, dentro de
+  // cada zona: una brigada trabaja EN una zona, así que se gestiona en ella.
+  const brigadesQ = useCampaignBrigades(id);
+  const volunteersQ = useCampaignVolunteers(id);
+  const createBrigade = useCreateBrigade(id);
+  const updateBrigade = useUpdateBrigade(id);
+  const deleteBrigade = useDeleteBrigade(id);
+  const addMember = useAddBrigadeMember(id);
+  const removeMember = useRemoveBrigadeMember(id);
   // null = cerrado; sin `id` = alta; con `id` = edición.
   const [editing, setEditing] = useState<{ id?: string; draft: ZoneDraft } | null>(null);
   const [toDelete, setToDelete] = useState<Zone | null>(null);
   const [details, setDetails] = useState<Zone | null>(null);
+  const [brigadeEditing, setBrigadeEditing] = useState<{ id?: string; draft: BrigadeDraft } | null>(null);
+  const [brigadeToDelete, setBrigadeToDelete] = useState<Brigade | null>(null);
   const [error, setError] = useState('');
 
   const run = async (fn: () => Promise<unknown>, after?: () => void) => {
@@ -296,9 +346,54 @@ function Zonas({ id, ops }: { id?: string; ops: CampaignOperations }) {
   const setDraft = (patch: Partial<ZoneDraft>) =>
     setEditing((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
 
+  const brigades = brigadesQ.data ?? [];
+  const volunteers = volunteersQ.data ?? [];
+  // Elegibles para un equipo: inscritos con cuenta y todavía sin brigada.
+  const freeVolunteers = volunteers
+    .filter((v) => !v.brigade && v.volunteerId)
+    .map((v) => ({ value: v.volunteerId!, label: v.fullName }));
+  const unassignedBrigades = brigades.filter((b) => !b.zoneId);
+
+  const saveBrigade = () => {
+    if (!brigadeEditing) return;
+    const { id: brigadeId, draft: bd } = brigadeEditing;
+    const body = {
+      name: bd.name.trim(),
+      zoneId: bd.zoneId || undefined,
+      meetingPoint: bd.meetingPoint.trim() || undefined,
+      meetingPointMapUrl: bd.meetingPointMapUrl.trim() || undefined,
+      contactPhone: bd.contactPhone.trim() || undefined,
+    };
+    return run(
+      () => (brigadeId ? updateBrigade.mutateAsync({ id: brigadeId, body }) : createBrigade.mutateAsync(body)),
+      () => setBrigadeEditing(null),
+    );
+  };
+  const brigadeDraft = brigadeEditing?.draft ?? EMPTY_BRIGADE;
+  const setBrigadeDraft = (patch: Partial<BrigadeDraft>) =>
+    setBrigadeEditing((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
+  const editBrigade = (b: Brigade) =>
+    setBrigadeEditing({
+      id: b.id,
+      draft: {
+        name: b.name,
+        zoneId: b.zoneId ?? '',
+        meetingPoint: b.meetingPoint ?? '',
+        meetingPointMapUrl: b.meetingPointMapUrl ?? '',
+        contactPhone: b.contactPhone ?? '',
+      },
+    });
+  // Mover un equipo de zona sin abrir el modal: es la acción más frecuente.
+  // '' = quitar de la zona (el backend recibe null y la deja sin zona).
+  const moveBrigade = (b: Brigade, zoneId: string) =>
+    run(() => updateBrigade.mutateAsync({ id: b.id, body: { zoneId: zoneId || null } }));
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-3)' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 'var(--sp-3)' }}>
+        <Button variant="subtle" icon="users" onClick={() => setBrigadeEditing({ draft: EMPTY_BRIGADE })}>
+          {t('ops.newBrigade')}
+        </Button>
         <Button icon="plus" onClick={() => setEditing({ draft: EMPTY_ZONE })}>{t('ops.newZone')}</Button>
       </div>
       {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
@@ -346,6 +441,56 @@ function Zonas({ id, ops }: { id?: string; ops: CampaignOperations }) {
               </div>
               <AddNeedInline label={t('ops.addNeed')} onAdd={(title, qty, unit) => run(() => addNeed.mutateAsync({ zoneId: z.id, body: { title, targetQty: qty, unit } }))} />
             </div>
+            {/* Equipos (brigadas) que trabajan esta zona, con sus voluntarios:
+                se crean, se traen de otra zona y se arman aquí mismo. */}
+            <div style={{ marginTop: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-2)' }}>
+              {(() => {
+                const zoneBrigades = brigades.filter((b) => b.zoneId === z.id);
+                const people = zoneBrigades.reduce((s, b) => s + (b.members?.length ?? 0), 0);
+                return (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <Icon name="users" size={14} />
+                      <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 'var(--fw-semibold)' }}>
+                        Equipos de la zona
+                      </span>
+                      <Badge tone="neutral">{zoneBrigades.length} equipo{zoneBrigades.length === 1 ? '' : 's'}</Badge>
+                      <Badge tone="info">{people} voluntario{people === 1 ? '' : 's'}</Badge>
+                      <div style={{ flex: 1 }} />
+                      <Button
+                        size="sm"
+                        variant="subtle"
+                        icon="plus"
+                        onClick={() => setBrigadeEditing({ draft: { ...EMPTY_BRIGADE, zoneId: z.id } })}
+                      >
+                        Nuevo equipo
+                      </Button>
+                    </div>
+                    {zoneBrigades.length === 0 && (
+                      <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+                        Sin equipos todavía: crea uno con «Nuevo equipo» o asigna uno desde «Equipos sin zona».
+                      </p>
+                    )}
+                    {zoneBrigades.map((b) => (
+                      <BrigadeBlock
+                        key={b.id}
+                        brigade={b}
+                        zones={ops.zones}
+                        freeVolunteers={freeVolunteers}
+                        addPending={addMember.isPending}
+                        onEdit={() => editBrigade(b)}
+                        onDelete={() => setBrigadeToDelete(b)}
+                        onMove={(zid) => moveBrigade(b, zid)}
+                        onAddMember={(volunteerId, role) =>
+                          run(() => addMember.mutateAsync({ brigadeId: b.id, body: { volunteerId, role: role || undefined } }))
+                        }
+                        onRemoveMember={(memberId) => run(() => removeMember.mutateAsync({ brigadeId: b.id, memberId }))}
+                      />
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
             {(() => {
               const st = zoneStats(z);
               return (
@@ -369,6 +514,127 @@ function Zonas({ id, ops }: { id?: string; ops: CampaignOperations }) {
           </Card>
         ))}
       </div>
+
+      {/* Equipos que aún no trabajan ninguna zona: se asignan desde aquí. */}
+      {unassignedBrigades.length > 0 && (
+        <Card style={{ marginTop: 'var(--sp-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <Icon name="users" size={16} />
+            <strong>Equipos sin zona</strong>
+            <Badge tone="warn">{unassignedBrigades.length}</Badge>
+          </div>
+          <p style={{ margin: '0 0 4px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            Asigna cada equipo a la zona donde va a trabajar con el selector «Zona».
+          </p>
+          {unassignedBrigades.map((b) => (
+            <BrigadeBlock
+              key={b.id}
+              brigade={b}
+              zones={ops.zones}
+              freeVolunteers={freeVolunteers}
+              addPending={addMember.isPending}
+              onEdit={() => editBrigade(b)}
+              onDelete={() => setBrigadeToDelete(b)}
+              onMove={(zid) => moveBrigade(b, zid)}
+              onAddMember={(volunteerId, role) =>
+                run(() => addMember.mutateAsync({ brigadeId: b.id, body: { volunteerId, role: role || undefined } }))
+              }
+              onRemoveMember={(memberId) => run(() => removeMember.mutateAsync({ brigadeId: b.id, memberId }))}
+            />
+          ))}
+        </Card>
+      )}
+
+      {/* Voluntarios inscritos que aún no están en ningún equipo. */}
+      {freeVolunteers.length > 0 && (
+        <Card style={{ marginTop: 'var(--sp-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <Icon name="user" size={16} />
+            <strong>Voluntarios sin equipo</strong>
+            <Badge tone="neutral">{freeVolunteers.length}</Badge>
+          </div>
+          <p style={{ margin: '0 0 var(--sp-2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            Súmalos a un equipo y quedarán organizados en la zona de ese equipo.
+          </p>
+          {brigades.length === 0 ? (
+            <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+              Primero crea un equipo (botón «{t('ops.newBrigade')}» arriba).
+            </p>
+          ) : (
+            freeVolunteers.map((v) => (
+              <div
+                key={v.value}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderTop: '1px dashed var(--line)', flexWrap: 'wrap' }}
+              >
+                <span style={{ flex: 1, minWidth: 140, fontSize: 'var(--fs-sm)' }}>{v.label}</span>
+                <div style={{ minWidth: 220 }}>
+                  <Select
+                    aria-label={`Asignar a ${v.label} a un equipo`}
+                    value=""
+                    disabled={addMember.isPending}
+                    onChange={(e) => {
+                      const brigadeId = e.target.value;
+                      if (brigadeId) run(() => addMember.mutateAsync({ brigadeId, body: { volunteerId: v.value } }));
+                    }}
+                    options={[
+                      { value: '', label: 'Elige un equipo…' },
+                      ...brigades.map((b) => ({
+                        value: b.id,
+                        label: `${b.name} · ${b.zone?.name ?? 'sin zona'}`,
+                      })),
+                    ]}
+                  />
+                </div>
+              </div>
+            ))
+          )}
+        </Card>
+      )}
+
+      {/* Alta / edición de un equipo (brigada). */}
+      <Modal
+        open={!!brigadeEditing}
+        onClose={() => setBrigadeEditing(null)}
+        title={brigadeEditing?.id ? t('common.edit') : t('ops.newBrigade')}
+        footer={
+          <>
+            <Button variant="subtle" onClick={() => setBrigadeEditing(null)}>{t('common.cancel')}</Button>
+            <Button
+              icon={brigadeEditing?.id ? 'check' : 'plus'}
+              disabled={!brigadeDraft.name.trim()}
+              loading={createBrigade.isPending || updateBrigade.isPending}
+              onClick={saveBrigade}
+            >
+              {brigadeEditing?.id ? t('common.save') : t('common.create')}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
+          <Input label={t('ops.brigadeName')} value={brigadeDraft.name} onChange={(e) => setBrigadeDraft({ name: e.target.value })} autoFocus />
+          <Select
+            label={t('ops.assignZone')}
+            value={brigadeDraft.zoneId}
+            onChange={(e) => setBrigadeDraft({ zoneId: e.target.value })}
+            options={[{ value: '', label: 'Sin zona' }, ...ops.zones.map((z) => ({ value: z.id, label: z.name }))]}
+          />
+          <Input label={t('ops.meetingPoint')} value={brigadeDraft.meetingPoint} onChange={(e) => setBrigadeDraft({ meetingPoint: e.target.value })} />
+          <Input label={t('ops.mapUrl')} value={brigadeDraft.meetingPointMapUrl} onChange={(e) => setBrigadeDraft({ meetingPointMapUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." />
+          <Input label={t('ops.contactPhone')} type="tel" value={brigadeDraft.contactPhone} onChange={(e) => setBrigadeDraft({ contactPhone: e.target.value })} />
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!brigadeToDelete}
+        danger
+        title={`${t('common.delete')}: ${brigadeToDelete?.name ?? ''}`}
+        message="Se eliminará el equipo; sus miembros quedarán sin equipo."
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        loading={deleteBrigade.isPending}
+        onCancel={() => setBrigadeToDelete(null)}
+        onConfirm={() => run(() => deleteBrigade.mutateAsync(brigadeToDelete!.id), () => setBrigadeToDelete(null))}
+      />
 
       <Modal
         open={!!editing}
@@ -465,176 +731,82 @@ const EMPTY_BRIGADE: BrigadeDraft = {
   contactPhone: '',
 };
 
-function Brigadas({ id, ops }: { id?: string; ops: CampaignOperations }) {
+/**
+ * Un equipo (brigada) tal como se ve dentro de la vista de zonas: cabecera con
+ * líder y datos de encuentro, selector para moverlo de zona, y sus voluntarios
+ * con alta y baja en línea.
+ */
+function BrigadeBlock({ brigade: b, zones, freeVolunteers, addPending, onEdit, onDelete, onMove, onAddMember, onRemoveMember }: {
+  brigade: Brigade;
+  zones: Zone[];
+  freeVolunteers: { value: string; label: string }[];
+  addPending?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onMove: (zoneId: string) => void;
+  onAddMember: (volunteerId: string, role: string) => void;
+  onRemoveMember: (memberId: string) => void;
+}) {
   const t = useT();
   const toast = useToast();
-  const brigadesQ = useCampaignBrigades(id);
-  const volunteersQ = useCampaignVolunteers(id);
-  const createBrigade = useCreateBrigade(id);
-  const updateBrigade = useUpdateBrigade(id);
-  const deleteBrigade = useDeleteBrigade(id);
-  const addMember = useAddBrigadeMember(id);
-  const removeMember = useRemoveBrigadeMember(id);
-  const [editing, setEditing] = useState<{ id?: string; draft: BrigadeDraft } | null>(null);
-  const [toDelete, setToDelete] = useState<Brigade | null>(null);
-  const [error, setError] = useState('');
-
-  const run = async (fn: () => Promise<unknown>, after?: () => void) => {
-    setError('');
-    try {
-      await fn();
-      after?.();
-      toast.success(t('toast.saved'));
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    }
-  };
-
-  const zoneOptions = [{ value: '', label: 'Sin zona' }, ...ops.zones.map((z) => ({ value: z.id, label: z.name }))];
-  const brigades = brigadesQ.data ?? [];
-  const volunteers = volunteersQ.data ?? [];
-  // Solo se puede sumar a una brigada a un voluntario inscrito y todavía sin brigada.
-  // Solo los que tienen perfil: una brigada se arma con voluntarios con cuenta,
-  // así que los invitados de la web no son elegibles.
-  const freeVolunteers = volunteers.filter((v) => !v.brigade && v.volunteerId);
-
-  const save = () => {
-    if (!editing) return;
-    const { id: brigadeId, draft } = editing;
-    const body = {
-      name: draft.name.trim(),
-      zoneId: draft.zoneId || undefined,
-      meetingPoint: draft.meetingPoint.trim() || undefined,
-      meetingPointMapUrl: draft.meetingPointMapUrl.trim() || undefined,
-      contactPhone: draft.contactPhone.trim() || undefined,
-    };
-    return run(
-      () => (brigadeId ? updateBrigade.mutateAsync({ id: brigadeId, body }) : createBrigade.mutateAsync(body)),
-      () => setEditing(null),
-    );
-  };
-
-  const draft = editing?.draft ?? EMPTY_BRIGADE;
-  const setDraft = (patch: Partial<BrigadeDraft>) =>
-    setEditing((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
-
-  if (brigadesQ.isLoading) return <CenteredSpinner label={t('common.loading')} />;
-
+  const lead = (b.members ?? []).find((m) => isLeaderRole(m.role));
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-3)' }}>
-        <Button icon="plus" onClick={() => setEditing({ draft: EMPTY_BRIGADE })}>{t('ops.newBrigade')}</Button>
-      </div>
-      {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
-      {brigades.length === 0 && <p style={{ color: 'var(--text-muted)' }}>{t('ops.noBrigades')}</p>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-        {brigades.map((b) => (
-          <Card key={b.id}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
-              <div>
-                <strong>{b.name}</strong>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>
-                  {t('ops.assignZone')}: {b.zone?.name ?? 'Sin zona'}
-                </div>
-                {(() => {
-                  const lead = (b.members ?? []).find((m) => isLeaderRole(m.role));
-                  return lead ? (
-                    <div style={{ fontSize: 'var(--fs-sm)' }}>👑 {t('ops.leader')}: {lead.volunteer?.user?.fullName ?? lead.user?.fullName ?? '—'}</div>
-                  ) : null;
-                })()}
-                {b.meetingPoint && <div style={{ fontSize: 'var(--fs-sm)' }}>📍 {b.meetingPoint}</div>}
-                {b.contactPhone && <div style={{ fontSize: 'var(--fs-sm)' }}>📞 {b.contactPhone}</div>}
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {b.meetingPointMapUrl && <Button size="sm" variant="ghost" icon="share" onClick={() => shareUrl(b.meetingPointMapUrl, toast, t('common.copied'))} aria-label={t('ops.shareBrigade')} />}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon="settings"
-                  aria-label={t('common.edit')}
-                  onClick={() =>
-                    setEditing({
-                      id: b.id,
-                      draft: {
-                        name: b.name,
-                        zoneId: b.zoneId ?? '',
-                        meetingPoint: b.meetingPoint ?? '',
-                        meetingPointMapUrl: b.meetingPointMapUrl ?? '',
-                        contactPhone: b.contactPhone ?? '',
-                      },
-                    })
-                  }
-                />
-                <Button size="sm" variant="ghost" icon="close" onClick={() => setToDelete(b)} aria-label={t('common.delete')} />
-              </div>
+    <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: 'var(--sp-3)', marginTop: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
+          <strong>{b.name}</strong>
+          {lead && (
+            <div style={{ fontSize: 'var(--fs-sm)' }}>
+              👑 {t('ops.leader')}: {lead.volunteer?.user?.fullName ?? lead.user?.fullName ?? '—'}
             </div>
-            <div style={{ marginTop: 'var(--sp-2)' }}>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>{t('ops.members')}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {[...(b.members ?? [])]
-                  .sort((a, z) => Number(isLeaderRole(z.role)) - Number(isLeaderRole(a.role)))
-                  .map((m) => (
-                    <Badge key={m.id} tone={isLeaderRole(m.role) ? 'gold' : 'neutral'}>
-                      {isLeaderRole(m.role) ? '👑 ' : ''}
-                      {m.volunteer?.user?.fullName ?? m.user?.fullName ?? '—'}
-                      {m.role ? ` · ${m.role}` : ''}
-                      <button type="button" style={{ marginLeft: 6, cursor: 'pointer', background: 'none', border: 'none' }}
-                        onClick={() => run(() => removeMember.mutateAsync({ brigadeId: b.id, memberId: m.id }))}>×</button>
-                    </Badge>
-                  ))}
-                {(b.members ?? []).length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>—</span>}
-              </div>
-              <AddMemberInline
-                label={t('ops.addMember')}
-                volunteers={freeVolunteers.map((v) => ({ value: v.volunteerId!, label: v.fullName }))}
-                loading={addMember.isPending}
-                onAdd={(volunteerId, role) =>
-                  run(() => addMember.mutateAsync({ brigadeId: b.id, body: { volunteerId, role: role || undefined } }))
-                }
-              />
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <Modal
-        open={!!editing}
-        onClose={() => setEditing(null)}
-        title={editing?.id ? t('common.edit') : t('ops.newBrigade')}
-        footer={
-          <>
-            <Button variant="subtle" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
-            <Button
-              icon={editing?.id ? 'check' : 'plus'}
-              disabled={!draft.name.trim()}
-              loading={createBrigade.isPending || updateBrigade.isPending}
-              onClick={save}
-            >
-              {editing?.id ? t('common.save') : t('common.create')}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
-          <Input label={t('ops.brigadeName')} value={draft.name} onChange={(e) => setDraft({ name: e.target.value })} autoFocus />
-          <Select label={t('ops.assignZone')} value={draft.zoneId} onChange={(e) => setDraft({ zoneId: e.target.value })} options={zoneOptions} />
-          <Input label={t('ops.meetingPoint')} value={draft.meetingPoint} onChange={(e) => setDraft({ meetingPoint: e.target.value })} />
-          <Input label={t('ops.mapUrl')} value={draft.meetingPointMapUrl} onChange={(e) => setDraft({ meetingPointMapUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." />
-          <Input label={t('ops.contactPhone')} type="tel" value={draft.contactPhone} onChange={(e) => setDraft({ contactPhone: e.target.value })} />
+          )}
+          {b.meetingPoint && <div style={{ fontSize: 'var(--fs-sm)' }}>📍 {b.meetingPoint}</div>}
+          {b.contactPhone && <div style={{ fontSize: 'var(--fs-sm)' }}>📞 {b.contactPhone}</div>}
         </div>
-      </Modal>
-
-      <ConfirmDialog
-        open={!!toDelete}
-        danger
-        title={`${t('common.delete')}: ${toDelete?.name ?? ''}`}
-        message="Se eliminará la brigada; sus miembros quedarán sin brigada."
-        confirmLabel={t('common.delete')}
-        cancelLabel={t('common.cancel')}
-        loading={deleteBrigade.isPending}
-        onCancel={() => setToDelete(null)}
-        onConfirm={() => run(() => deleteBrigade.mutateAsync(toDelete!.id), () => setToDelete(null))}
-      />
+        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          {/* Mover el equipo de zona sin abrir el modal. */}
+          <div style={{ width: 170 }}>
+            <Select
+              aria-label={`Zona de ${b.name}`}
+              label="Zona"
+              value={b.zoneId ?? ''}
+              onChange={(e) => {
+                if ((b.zoneId ?? '') !== e.target.value) onMove(e.target.value);
+              }}
+              options={[{ value: '', label: 'Sin zona' }, ...zones.map((z) => ({ value: z.id, label: z.name }))]}
+            />
+          </div>
+          {b.meetingPointMapUrl && (
+            <Button size="sm" variant="ghost" icon="share" onClick={() => shareUrl(b.meetingPointMapUrl, toast, t('common.copied'))} aria-label={t('ops.shareBrigade')} />
+          )}
+          <Button size="sm" variant="ghost" icon="settings" aria-label={t('common.edit')} onClick={onEdit} />
+          <Button size="sm" variant="ghost" icon="close" aria-label={t('common.delete')} onClick={onDelete} />
+        </div>
+      </div>
+      <div style={{ marginTop: 'var(--sp-2)' }}>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>{t('ops.members')}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {[...(b.members ?? [])]
+            .sort((a, z) => Number(isLeaderRole(z.role)) - Number(isLeaderRole(a.role)))
+            .map((m) => (
+              <Badge key={m.id} tone={isLeaderRole(m.role) ? 'gold' : 'neutral'}>
+                {isLeaderRole(m.role) ? '👑 ' : ''}
+                {m.volunteer?.user?.fullName ?? m.user?.fullName ?? '—'}
+                {m.role ? ` · ${m.role}` : ''}
+                <button
+                  type="button"
+                  aria-label="Quitar del equipo"
+                  style={{ marginLeft: 6, cursor: 'pointer', background: 'none', border: 'none' }}
+                  onClick={() => onRemoveMember(m.id)}
+                >
+                  ×
+                </button>
+              </Badge>
+            ))}
+          {(b.members ?? []).length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>—</span>}
+        </div>
+        <AddMemberInline label={t('ops.addMember')} volunteers={freeVolunteers} loading={addPending} onAdd={onAddMember} />
+      </div>
     </div>
   );
 }
@@ -649,6 +821,10 @@ interface CenterDraft {
   capacity: string;
   mapUrl: string;
   photoUrl: string;
+  /** Almacén central: consolida lo recaudado y es el único que despacha. */
+  isCentral: boolean;
+  /** Si el central además acopia (recibe donaciones y aparece en público). */
+  acceptsDonations: boolean;
 }
 const EMPTY_CENTER: CenterDraft = {
   name: '',
@@ -659,6 +835,8 @@ const EMPTY_CENTER: CenterDraft = {
   capacity: '',
   mapUrl: '',
   photoUrl: '',
+  isCentral: false,
+  acceptsDonations: true,
 };
 
 // Selector de horario: guarda el mismo formato de texto libre que ya usa el
@@ -794,6 +972,8 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
       openingHours: draft.openingHours.trim() || undefined,
       contactPhone: draft.contactPhone.trim() || undefined,
       photoUrl: draft.photoUrl.trim() || undefined,
+      isCentral: draft.isCentral,
+      acceptsDonations: draft.isCentral ? draft.acceptsDonations : true,
       ...(mapUrl && isHttpUrl(mapUrl) ? { mapUrl } : {}),
       ...(coords ?? {}),
       ...(Number.isFinite(capacity) && capacity > 0 ? { capacity } : {}),
@@ -824,38 +1004,71 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
   // escribiendo el mismo nombre, la meta avanza sola.
   const suggestions = [...new Set((goals?.items ?? []).map((n) => n.title))];
 
+  // Almacén central de la campaña (máximo uno): consolida lo recaudado.
+  const central = ops.centers.find((c) => c.isCentral);
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-3)' }}>
-        <Button icon="plus" onClick={() => setEditing({ draft: EMPTY_CENTER })}>{t('ops.newCenter')}</Button>
-      </div>
-      {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
-      {ops.centers.length === 0 && <p style={{ color: 'var(--text-muted)' }}>{t('ops.noCenters')}</p>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-        {ops.centers.map((c) => (
-          <CenterCard
-            key={c.id}
-            center={c}
-            zones={ops.zones}
-            campaignId={id}
-            suggestions={suggestions}
-            onEdit={() =>
-              setEditing({
-                id: c.id,
-                draft: {
-                  name: c.name,
-                  address: c.address ?? '',
-                  reference: c.reference ?? '',
-                  openingHours: c.openingHours ?? '',
-                  contactPhone: c.contactPhone ?? '',
-                  capacity: c.capacity ? String(c.capacity) : '',
-                  mapUrl: c.mapUrl ?? '',
-                  photoUrl: c.photoUrl ?? '',
-                },
-              })
-            }
-          />
-        ))}
+      {/* Resumen de la campaña: cuánto hay de cada producto entre todos los
+          centros, separando acopio de almacén central y contra la meta. */}
+      <CentersSummary campaignId={id} />
+      {/* Centros a la izquierda, donaciones al lado: lo que entra por un
+          acopio aparece de inmediato en la lista de la derecha. En pantallas
+          angostas las columnas se apilan. */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 'var(--sp-4)',
+          alignItems: 'start',
+        }}
+      >
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-3)' }}>
+            <Button icon="plus" onClick={() => setEditing({ draft: EMPTY_CENTER })}>{t('ops.newCenter')}</Button>
+          </div>
+          {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
+          {ops.centers.length === 0 && <p style={{ color: 'var(--text-muted)' }}>{t('ops.noCenters')}</p>}
+          {central && ops.centers.length > 1 && (
+            <div style={{ marginBottom: 'var(--sp-3)' }}>
+              <Banner tone="info">
+                Con almacén central, los centros de acopio le transfieren lo
+                recaudado y las entregas a beneficiarios salen solo de «{central.name}».
+              </Banner>
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {ops.centers.map((c) => (
+              <CenterCard
+                key={c.id}
+                center={c}
+                central={central ?? null}
+                zones={ops.zones}
+                campaignId={id}
+                campaignTitle={ops.campaign.title}
+                suggestions={suggestions}
+                onEdit={() =>
+                  setEditing({
+                    id: c.id,
+                    draft: {
+                      name: c.name,
+                      address: c.address ?? '',
+                      reference: c.reference ?? '',
+                      openingHours: c.openingHours ?? '',
+                      contactPhone: c.contactPhone ?? '',
+                      capacity: c.capacity ? String(c.capacity) : '',
+                      mapUrl: c.mapUrl ?? '',
+                      photoUrl: c.photoUrl ?? '',
+                      isCentral: !!c.isCentral,
+                      acceptsDonations: c.acceptsDonations !== false,
+                    },
+                  })
+                }
+              />
+            ))}
+          </div>
+        </div>
+        <Donaciones id={id} ops={ops} />
       </div>
 
       <Modal
@@ -926,6 +1139,27 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
               onChange={(e) => setDraft({ capacity: e.target.value })}
             />
           </div>
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-2)', display: 'grid', gap: 6 }}>
+            <Checkbox checked={draft.isCentral} onChange={(v) => setDraft({ isCentral: v })}>
+              Almacén central de la campaña
+            </Checkbox>
+            {draft.isCentral && (
+              <>
+                <Checkbox
+                  checked={draft.acceptsDonations}
+                  onChange={(v) => setDraft({ acceptsDonations: v })}
+                >
+                  También recibe donaciones (aparece al público como centro de acopio)
+                </Checkbox>
+                <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                  Los centros de acopio le transfieren lo recaudado y las
+                  entregas a beneficiarios salen solo de aquí.
+                  {!draft.acceptsDonations &&
+                    ' Como no recibe donaciones, es bodega interna: no se muestra a los donantes.'}
+                </p>
+              </>
+            )}
+          </div>
         </div>
       </Modal>
     </div>
@@ -958,10 +1192,13 @@ function categoryLabel(cat: Category): string {
   return `${icon}${cat.name}${kind}`;
 }
 
-function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
+function CenterCard({ center: c, central, zones, campaignId, campaignTitle, suggestions, onEdit }: {
   center: Center;
+  /** Almacén central de la campaña, si existe. */
+  central: Center | null;
   zones: Zone[];
   campaignId?: string;
+  campaignTitle?: string;
   suggestions: string[];
   onEdit: () => void;
 }) {
@@ -977,11 +1214,24 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
   const { data: movements } = useCenterMovements(c.id, open && showMovements);
 
   const [item, setItem] = useState<ItemDraft>(EMPTY_ITEM);
+  // Quién trae la donación. El flujo por defecto ES una donación (con datos
+  // del donante para su comprobante); "Anónima" la registra sin datos y
+  // "Sin donante" queda para ingresos internos (compras, ajustes) que no
+  // generan donación ni comprobante.
+  const [donorMode, setDonorMode] = useState<'NONE' | 'NAMED' | 'ANON'>('NAMED');
+  const [donor, setDonor] = useState({ name: '', phone: '', email: '' });
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const me = useAuth((st) => st.user);
   const [showMore, setShowMore] = useState(false);
   const [newCat, setNewCat] = useState<{ name: string; unit: string; kind: CategoryKind } | null>(null);
   const [editing, setEditing] = useState<(ItemDraft & { id: string }) | null>(null);
   const [error, setError] = useState('');
   const [dispatchItem, setDispatchItem] = useState<{ id: string; name: string; quantity: number; unit?: string } | null>(null);
+  // Con almacén central, este centro no despacha: transfiere lo recaudado.
+  const mustTransfer = !!central && !c.isCentral;
+  const [transferItem, setTransferItem] = useState<
+    { id: string; name: string; quantity: number; unit?: string } | 'ALL' | null
+  >(null);
 
   const doPrint = () => window.print();
   const qty = Number(item.quantity);
@@ -999,8 +1249,10 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
     .flatMap((g) => g.items)
     .find((i) => normalizeItemName(i.name) === normalizeItemName(item.name) && (i.unit ?? 'unidad') === unit);
 
+  const donorReady = donorMode !== 'NAMED' || !!donor.name.trim();
+
   const addItem = async () => {
-    if (!item.name.trim() || !item.categoryId || !qtyValid) return;
+    if (!item.name.trim() || !item.categoryId || !qtyValid || !donorReady) return;
     setError('');
     try {
       const saved = await createItem.mutateAsync({
@@ -1012,6 +1264,14 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
           unit,
           expiresAt: item.expiresAt ? new Date(item.expiresAt).toISOString() : undefined,
           note: item.note.trim() || undefined,
+          ...(donorMode === 'ANON' ? { donorAnonymous: true } : {}),
+          ...(donorMode === 'NAMED'
+            ? {
+                donorName: donor.name.trim(),
+                donorPhone: donor.phone.trim() || undefined,
+                donorEmail: donor.email.trim() || undefined,
+              }
+            : {}),
         },
       });
       toast.success(
@@ -1019,9 +1279,29 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
           ? `Sumado: ${saved.name} ahora tiene ${saved.quantity} ${saved.unit ?? ''}`.trim()
           : t('toast.saved'),
       );
+      // Donación registrada: se abre el comprobante listo para imprimir.
+      if (saved.donation) {
+        setReceipt({
+          code: saved.donation.code,
+          date: new Date().toISOString(),
+          centerName: c.name,
+          centerAddress: c.address,
+          campaignTitle,
+          itemName: item.name.trim(),
+          quantity: qty,
+          unit,
+          anonymous: donorMode === 'ANON',
+          donorName: donorMode === 'NAMED' ? donor.name.trim() : null,
+          donorPhone: donorMode === 'NAMED' ? donor.phone.trim() || null : null,
+          donorEmail: donorMode === 'NAMED' ? donor.email.trim() || null : null,
+          receivedBy: me?.fullName ?? null,
+        });
+      }
       // Se conservan categoría y unidad: normalmente se ingresan varios
-      // productos parecidos seguidos.
+      // productos parecidos seguidos. El donante se limpia: es por entrega.
       setItem((d) => ({ ...d, name: '', quantity: '1', expiresAt: '', note: '' }));
+      setDonorMode('NAMED');
+      setDonor({ name: '', phone: '', email: '' });
     } catch (e) {
       setError(apiErrorMessage(e));
     }
@@ -1080,6 +1360,12 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
           )}
           <div style={{ minWidth: 0 }}>
             <strong>{c.name}</strong>
+            {c.isCentral && (
+              <span style={{ marginLeft: 6, display: 'inline-flex', gap: 4 }}>
+                <Badge tone="success">Almacén central</Badge>
+                {c.acceptsDonations === false && <Badge tone="neutral">interno · no público</Badge>}
+              </span>
+            )}
             {c.address && <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{c.address}</div>}
             {c.reference && <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>{c.reference}</div>}
             {c.openingHours && <div style={{ fontSize: 'var(--fs-sm)' }}><Icon name="clock" size={14} /> {c.openingHours}</div>}
@@ -1154,8 +1440,12 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
                       variant="ghost"
                       icon="truck"
                       disabled={it.quantity <= 0}
-                      aria-label={t('ops.dispatch')}
-                      onClick={() => setDispatchItem({ id: it.id, name: it.name, quantity: it.quantity, unit: it.unit })}
+                      aria-label={mustTransfer ? 'Transferir al almacén central' : t('ops.dispatch')}
+                      onClick={() =>
+                        mustTransfer
+                          ? setTransferItem({ id: it.id, name: it.name, quantity: it.quantity, unit: it.unit })
+                          : setDispatchItem({ id: it.id, name: it.name, quantity: it.quantity, unit: it.unit })
+                      }
                     />
                   </div>
                 ))}
@@ -1169,7 +1459,18 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
             <Button size="sm" variant="ghost" icon="list" onClick={() => setShowMovements((v) => !v)}>
               {showMovements ? 'Ocultar movimientos' : 'Ver movimientos'}
             </Button>
+            {mustTransfer && inventory.some((g) => g.items.some((it) => it.quantity > 0)) && (
+              <Button size="sm" icon="truck" onClick={() => setTransferItem('ALL')}>
+                Transferir todo al central
+              </Button>
+            )}
           </div>
+          {mustTransfer && (
+            <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              Lo recaudado se transfiere al almacén central «{central?.name}»;
+              las entregas a beneficiarios salen desde ahí.
+            </p>
+          )}
 
           {showMovements && (
             <div style={{ marginTop: 'var(--sp-2)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-2)' }}>
@@ -1177,15 +1478,53 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
                 <span style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>{t('common.empty')}</span>
               )}
               {(movements ?? []).map((m) => (
-                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 'var(--fs-sm)' }}>
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)' }}>
                   <span>
-                    <Badge tone={m.type === 'IN' ? 'success' : m.type === 'OUT' ? 'warn' : 'neutral'}>
-                      {m.type === 'IN' ? 'Entrada' : m.type === 'OUT' ? 'Salida' : 'Ajuste'}
+                    <Badge tone={m.type === 'IN' || m.type === 'TRANSFER_IN' ? 'success' : m.type === 'ADJUST' ? 'neutral' : 'warn'}>
+                      {m.type === 'IN'
+                        ? 'Entrada'
+                        : m.type === 'OUT'
+                          ? 'Salida'
+                          : m.type === 'TRANSFER_IN'
+                            ? 'Transferencia recibida'
+                            : m.type === 'TRANSFER_OUT'
+                              ? 'Transferencia enviada'
+                              : 'Ajuste'}
                     </Badge>{' '}
                     {m.item?.name ?? '—'} · {m.quantity}{m.item?.unit ? ` ${m.item.unit}` : ''}
+                    {m.donation && (
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {' '}· {m.donation.anonymous ? 'donante anónimo' : `donó ${m.donation.donorName ?? '—'}`}
+                      </span>
+                    )}
                   </span>
-                  <span style={{ color: 'var(--text-muted)' }}>
+                  <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     {formatDateTime(m.createdAt)}{m.user ? ` · ${m.user.fullName}` : ''}
+                    {m.donation && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon="download"
+                        aria-label="Imprimir comprobante"
+                        onClick={() =>
+                          setReceipt({
+                            code: m.donation!.code,
+                            date: m.createdAt,
+                            centerName: c.name,
+                            centerAddress: c.address,
+                            campaignTitle,
+                            itemName: m.item?.name ?? 'Donación en especie',
+                            quantity: m.quantity,
+                            unit: m.item?.unit,
+                            anonymous: m.donation!.anonymous,
+                            donorName: m.donation!.donorName,
+                            donorPhone: m.donation!.donorPhone,
+                            donorEmail: m.donation!.donorEmail,
+                            receivedBy: m.user?.fullName ?? null,
+                          })
+                        }
+                      />
+                    )}
                   </span>
                 </div>
               ))}
@@ -1194,10 +1533,11 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
 
           {error && <div style={{ marginTop: 'var(--sp-2)' }}><Banner tone="error">{error}</Banner></div>}
 
-          {/* Ingreso de producto: nombre + categoría + unidad + cantidad. */}
+          {/* Agregar donación: qué producto entra + quién lo dona. Es el alta
+              de inventario del centro; con donante crea además la donación. */}
           <div style={{ marginTop: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-3)' }}>
             <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-sm)', marginBottom: 6 }}>
-              Ingresar producto
+              Agregar donación
             </div>
             {/* Política de plataforma: el backend también lo rechaza. */}
             <div style={{ marginBottom: 'var(--sp-2)' }}>
@@ -1235,7 +1575,60 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
                 ]}
               />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6, alignItems: 'flex-end', marginTop: 6 }}>
+            {/* Quién dona: con datos sale el comprobante a su nombre; anónima
+                se registra igual (código + comprobante) pero sin datos. */}
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 'var(--fw-semibold)', display: 'block', marginBottom: 6 }}>
+                ¿Quién dona?
+              </span>
+              <SegmentedControl
+                value={donorMode}
+                onChange={(v) => setDonorMode(v)}
+                options={[
+                  { value: 'NAMED', label: 'Con sus datos' },
+                  { value: 'ANON', label: 'Anónima' },
+                  { value: 'NONE', label: 'Sin donante' },
+                ]}
+              />
+              {donorMode === 'NAMED' && (
+                <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                  <Input
+                    label="Nombre del donante"
+                    placeholder="María Quispe"
+                    value={donor.name}
+                    onChange={(e) => setDonor((d) => ({ ...d, name: e.target.value }))}
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 6 }}>
+                    <Input
+                      label="Teléfono"
+                      hint={t('common.optional')}
+                      type="tel"
+                      inputMode="tel"
+                      placeholder="987 654 321"
+                      value={donor.phone}
+                      onChange={(e) => setDonor((d) => ({ ...d, phone: e.target.value }))}
+                    />
+                    <Input
+                      label="Correo"
+                      hint={t('common.optional')}
+                      type="email"
+                      inputMode="email"
+                      placeholder="maria@correo.com"
+                      value={donor.email}
+                      onChange={(e) => setDonor((d) => ({ ...d, email: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
+              <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                {donorMode === 'ANON'
+                  ? 'Se registra la donación sin datos personales y sale el comprobante con su código.'
+                  : donorMode === 'NAMED'
+                    ? 'Con el correo o teléfono, el donante puede consultar su donación en la web; el comprobante sale a su nombre.'
+                    : 'Ingreso interno al stock (compra, ajuste): no genera donación ni comprobante.'}
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, alignItems: 'flex-end', marginTop: 6 }}>
               <Select
                 label="Unidad de medida"
                 value={unit}
@@ -1243,13 +1636,16 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
                 options={unitOptions.map((u) => ({ value: u, label: u }))}
               />
               <QtyInput label="Cantidad" value={item.quantity} onChange={(v) => setItem((d) => ({ ...d, quantity: v }))} width={110} />
+            </div>
+            <div style={{ marginTop: 6 }}>
               <Button
                 icon="plus"
-                disabled={!item.name.trim() || !item.categoryId || !qtyValid}
+                block
+                disabled={!item.name.trim() || !item.categoryId || !qtyValid || !donorReady}
                 loading={createItem.isPending}
                 onClick={addItem}
               >
-                {existing ? 'Sumar' : 'Ingresar'}
+                {donorMode !== 'NONE' ? 'Agregar donación' : existing ? 'Sumar al stock' : 'Ingresar al stock'}
               </Button>
             </div>
             {existing && (
@@ -1306,7 +1702,7 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
                     icon="plus"
                     onClick={() => setNewCat({ name: '', unit: 'unidad', kind: 'SUPPLY' })}
                   >
-                    Crear categoría (comida, herramientas, transporte…)
+                    Crear categoría nueva
                   </Button>
                 )}
               </div>
@@ -1373,7 +1769,96 @@ function CenterCard({ center: c, zones, campaignId, suggestions, onEdit }: {
           onClose={() => setDispatchItem(null)}
         />
       )}
+
+      {transferItem && central && (
+        <TransferModal
+          centerId={c.id}
+          campaignId={campaignId}
+          central={central}
+          item={transferItem === 'ALL' ? null : transferItem}
+          onClose={() => setTransferItem(null)}
+        />
+      )}
+
+      {receipt && <DonationReceiptModal data={receipt} onClose={() => setReceipt(null)} />}
     </Card>
+  );
+}
+
+/* ───────── Transferencia al almacén central ───────── */
+function TransferModal({ centerId, campaignId, central, item, onClose }: {
+  centerId: string;
+  campaignId?: string;
+  central: Center;
+  /** Ítem a transferir; null = todo el stock del centro. */
+  item: { id: string; name: string; quantity: number; unit?: string } | null;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const toast = useToast();
+  const transfer = useTransferCenterItems(campaignId);
+  const [qty, setQty] = useState(item ? String(item.quantity) : '');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+
+  const n = Number(qty);
+  const valid = !item || (Number.isFinite(n) && n > 0 && n <= item.quantity);
+
+  const submit = async () => {
+    setError('');
+    try {
+      const res = await transfer.mutateAsync({
+        centerId,
+        body: item
+          ? { items: [{ itemId: item.id, quantity: n }], note: note.trim() || undefined }
+          : { all: true, note: note.trim() || undefined },
+      });
+      const total = res.items.reduce((s, i) => s + i.quantity, 0);
+      toast.success(`Transferido a ${central.name}: ${total} en ${res.items.length} producto${res.items.length === 1 ? '' : 's'}`);
+      onClose();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={item ? `Transferir: ${item.name}` : 'Transferir todo al central'}
+      footer={
+        <>
+          <Button variant="subtle" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button icon="truck" disabled={!valid} loading={transfer.isPending} onClick={submit}>
+            Transferir
+          </Button>
+        </>
+      }
+    >
+      {error && <div style={{ marginBottom: 'var(--sp-2)' }}><Banner tone="error">{error}</Banner></div>}
+      <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+          Destino: <strong>{central.name}</strong> (almacén central)
+        </div>
+        {item ? (
+          <>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+              Stock: {item.quantity}{item.unit ? ` ${item.unit}` : ''}
+              {Number.isFinite(n) && n > 0 && n <= item.quantity && (
+                <> · queda {item.quantity - n}{item.unit ? ` ${item.unit}` : ''}</>
+              )}
+            </div>
+            <QtyInput label={t('donate.quantity')} value={qty} onChange={setQty} width={120} />
+          </>
+        ) : (
+          <p style={{ margin: 0, fontSize: 'var(--fs-sm)' }}>
+            Se transfiere todo el stock disponible de este centro al almacén
+            central. El inventario del centro queda en cero.
+          </p>
+        )}
+        <Input label={t('common.note')} hint={t('common.optional')} value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+    </Modal>
   );
 }
 
@@ -1453,7 +1938,7 @@ function DispatchModal({ centerId, campaignId, zones, item, onClose }: {
 
         {zones.length === 0 ? (
           <Banner tone="warn" title="No hay zonas de atención">
-            Crea una zona en la pestaña Zonas para poder despachar: es el destino de la ayuda.
+            Crea una zona en la pestaña «Zonas, equipos y voluntarios» para poder despachar: es el destino de la ayuda.
           </Banner>
         ) : (
           <Select
@@ -2147,7 +2632,7 @@ function Metas({ campaign, ops }: { campaign: Campaign; ops: CampaignOperations 
             </div>
           ) : (
             <Button size="sm" variant="subtle" icon="plus" onClick={() => setNewCat({ name: '', unit: 'unidad', kind: 'SUPPLY' })}>
-              Crear categoría (comida, herramientas, transporte, combustible…)
+              Crear categoría nueva (comida, herramientas…)
             </Button>
           )}
         </div>
@@ -2245,23 +2730,17 @@ function Metas({ campaign, ops }: { campaign: Campaign; ops: CampaignOperations 
   );
 }
 
-/* ───────── Donaciones (dinero / especies) + alta manual ───────── */
-function Donaciones({ id, ops }: { id?: string; ops: CampaignOperations }) {
+/* ───────── Donaciones de la campaña (solo lectura + gestión de estado) ─────────
+   Ya no hay alta manual aquí: las donaciones en especie nacen al ingresarlas en
+   el centro de acopio (sección "Agregar donación" de cada centro) y las de
+   dinero llegan desde la web pública; aquí se listan, se acreditan y se les
+   cambia el estado. */
+function Donaciones({ id }: { id?: string; ops?: CampaignOperations }) {
   const t = useT();
   const toast = useToast();
   const { data, isLoading } = useCampaignDonations(id);
-  const createDonation = useCreateDonation();
   const confirmPayment = useConfirmPayment();
   const updateStatus = useUpdateDonationStatus();
-
-  const [open, setOpen] = useState(false);
-  const [dType, setDType] = useState<'MONEY' | 'GOODS'>('MONEY');
-  const [amount, setAmount] = useState('');
-  const [qty, setQty] = useState('1');
-  const [desc, setDesc] = useState('');
-  const [centerId, setCenterId] = useState('');
-  const [donor, setDonor] = useState('');
-  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
 
   const donations = (data ?? []).filter((d) => d.type !== 'TIME');
@@ -2276,89 +2755,19 @@ function Donaciones({ id, ops }: { id?: string; ops: CampaignOperations }) {
     }
   };
 
-  const submit = async () => {
-    setError('');
-    try {
-      const body: Parameters<typeof createDonation.mutateAsync>[0] = {
-        type: dType,
-        campaignId: id,
-        donorName: donor || undefined,
-        donorPhone: phone || undefined,
-        description: desc || undefined,
-      };
-      if (dType === 'MONEY') {
-        body.amount = Number(amount) || 0;
-        body.paymentMethod = 'YAPE';
-      } else {
-        body.quantity = Number(qty);
-        body.paymentMethod = 'IN_KIND';
-        body.centerId = centerId;
-      }
-      const created = await createDonation.mutateAsync(body);
-      if (dType === 'MONEY') await confirmPayment.mutateAsync({ id: created.id, reference: 'MANUAL' });
-      toast.success(t('toast.donationDone'));
-      setAmount(''); setQty('1'); setDesc(''); setCenterId(''); setDonor(''); setPhone(''); setOpen(false);
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    }
-  };
-
-  const valid =
-    dType === 'MONEY'
-      ? Number(amount) > 0
-      : Number(qty) > 0 && desc.trim().length > 0 && !!centerId;
-
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-3)' }}>
-        <Button icon="plus" onClick={() => setOpen(true)}>{t('donate.title')}</Button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', minHeight: 40 }}>
+        <Icon name="heart" size={18} />
+        <strong style={{ fontSize: 'var(--fs-base)' }}>{t('stats.donations')}</strong>
+        <Badge tone="neutral">{donations.length}</Badge>
       </div>
+      <p style={{ margin: '0 0 var(--sp-3)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+        Las donaciones en especie se agregan desde su centro de acopio; las de
+        dinero llegan desde la web pública y aquí se acreditan.
+      </p>
 
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title={t('donate.title')}
-        footer={
-          <>
-            <Button variant="subtle" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-            <Button icon="plus" disabled={!valid} loading={createDonation.isPending || confirmPayment.isPending} onClick={submit}>
-              {t('common.create')}
-            </Button>
-          </>
-        }
-      >
-        {error && <div style={{ marginBottom: 'var(--sp-2)' }}><Banner tone="error">{error}</Banner></div>}
-        <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
-          <Select label={t('donate.chooseType')} value={dType} onChange={(e) => setDType(e.target.value as 'MONEY' | 'GOODS')}
-            options={[{ value: 'MONEY', label: t('donate.money') }, { value: 'GOODS', label: t('donate.goods') }]} />
-          {dType === 'MONEY' ? (
-            <Input label={t('donate.amount')} type="number" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          ) : (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 6 }}>
-                <Input label={t('donate.quantity')} type="number" inputMode="numeric" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-                <Input label={t('donate.whatDonate')} value={desc} onChange={(e) => setDesc(e.target.value)} />
-              </div>
-              <Select
-                label="Centro de acopio"
-                value={centerId}
-                onChange={(e) => setCenterId(e.target.value)}
-                options={ops.centers.map((c) => ({ value: c.id, label: c.name }))}
-                placeholder="Elige un centro…"
-              />
-              {ops.centers.length === 0 && (
-                <Banner tone="warn">Crea primero un centro de acopio en la pestaña "Centros".</Banner>
-              )}
-            </>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            <Input label={t('donate.name')} value={donor} onChange={(e) => setDonor(e.target.value)} />
-            <Input label={t('donate.phone')} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-        </div>
-      </Modal>
-
-      {error && !open && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
+      {error && <div style={{ marginBottom: 'var(--sp-3)' }}><Banner tone="error">{error}</Banner></div>}
       {isLoading ? (
         <CenteredSpinner label={t('common.loading')} />
       ) : donations.length === 0 ? (
@@ -2367,7 +2776,8 @@ function Donaciones({ id, ops }: { id?: string; ops: CampaignOperations }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
           {donations.map((d) => (
             <Card key={d.id}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
+              {/* En columna angosta (junto a los centros) las acciones bajan de línea. */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
                 <div>
                   <strong>{d.type === 'MONEY' ? formatSoles(d.amount) : `${d.quantity ?? ''} ${d.description ?? ''}`}</strong>
                   <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
@@ -2404,7 +2814,7 @@ function Donaciones({ id, ops }: { id?: string; ops: CampaignOperations }) {
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   {d.type === 'MONEY' && (
                     <Badge tone={d.payment?.status === 'PAID' ? 'success' : 'warn'}>
                       {d.payment?.status === 'PAID' ? 'Acreditado' : 'No acreditado'}
@@ -2645,6 +3055,10 @@ function EnrollModal({ campaignId, emergencyId, ops, onClose }: {
   const items = (center?.inventoryByCategory ?? []).flatMap((g) => g.items).filter((it) => it.quantity > 0);
   const n = Number(qty);
   const valid = docNumber.trim().length >= 3 && fullName.trim().length >= 2;
+  // Con almacén central, la entrega solo puede salir de ahí: los centros de
+  // acopio transfieren, no entregan.
+  const central = ops.centers.find((c) => c.isCentral);
+  const deliveryCenters = central ? [central] : ops.centers;
 
   const submit = async () => {
     setError('');
@@ -2702,10 +3116,16 @@ function EnrollModal({ campaignId, emergencyId, ops, onClose }: {
           <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 'var(--fw-bold)', marginBottom: 4 }}>{t('ops.deliveries')} ({t('common.optional')})</div>
           <div style={{ display: 'grid', gap: 6 }}>
             <Select
-              label={t('ops.centers')}
+              label={central ? 'Almacén central' : t('ops.centers')}
               value={centerId}
               onChange={(e) => { setCenterId(e.target.value); setItemId(''); }}
-              options={[{ value: '', label: '—' }, ...ops.centers.map((c) => ({ value: c.id, label: c.name }))]}
+              options={[
+                { value: '', label: '—' },
+                ...deliveryCenters.map((c) => ({
+                  value: c.id,
+                  label: c.isCentral ? `${c.name} (almacén central)` : c.name,
+                })),
+              ]}
             />
             {centerId && (
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 6 }}>
@@ -2989,7 +3409,7 @@ function AddMemberInline({ onAdd, label, volunteers, loading }: {
   if (volunteers.length === 0) {
     return (
       <p style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
-        No hay voluntarios inscritos sin brigada. Súmalos desde la pestaña Voluntarios.
+        No hay voluntarios inscritos sin equipo. Súmalos desde la sección Voluntarios, al lado.
       </p>
     );
   }

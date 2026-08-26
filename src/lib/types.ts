@@ -41,7 +41,12 @@ export type CenterStatus = 'OPEN' | 'NEAR_FULL' | 'FULL' | 'CLOSED';
 export type ShiftStatus = 'OPEN' | 'FULL' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 export type BeneficiaryStatus = 'PENDING' | 'VALIDATED' | 'SERVED' | 'REJECTED';
 export type DispatchStatus = 'PREPARING' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';
-export type InventoryMovementType = 'IN' | 'OUT' | 'ADJUST';
+export type InventoryMovementType =
+  | 'IN'
+  | 'OUT'
+  | 'ADJUST'
+  | 'TRANSFER_IN'
+  | 'TRANSFER_OUT';
 
 export type CategoryKind = 'SUPPLY' | 'TOOL' | 'TRANSPORT' | 'FUEL' | 'SERVICE' | 'OTHER';
 
@@ -460,6 +465,17 @@ export interface InventoryCategoryGroup {
 }
 
 /** Movimiento de almacén (entrada, salida o ajuste). */
+/** Donación enlazada a un ingreso de inventario (para el comprobante). */
+export interface MovementDonation {
+  id: string;
+  /** Código público "sigue tu donación"; también numera el comprobante. */
+  code: string;
+  anonymous: boolean;
+  donorName?: string | null;
+  donorPhone?: string | null;
+  donorEmail?: string | null;
+}
+
 export interface InventoryMovement {
   id: string;
   type: InventoryMovementType;
@@ -468,6 +484,7 @@ export interface InventoryMovement {
   createdAt: string;
   item?: { id: string; name: string; unit?: string } | null;
   user?: { id: string; fullName: string } | null;
+  donation?: MovementDonation | null;
 }
 
 export interface Center {
@@ -487,8 +504,52 @@ export interface Center {
   photoUrl?: string;
   reference?: string;
   campaignId?: string;
+  /** Almacén central de la campaña: consolida lo recaudado y despacha a beneficiarios. */
+  isCentral?: boolean;
+  /** Si el central además acopia (recibe donaciones y aparece en público). */
+  acceptsDonations?: boolean;
   inventory?: InventoryItem[];
   inventoryByCategory?: InventoryCategoryGroup[];
+}
+
+/** Un producto en el resumen global: stock por bolsa y distancia a la meta. */
+export interface CentersSummaryProduct {
+  nameKey: string;
+  name: string;
+  unit: string;
+  icon?: string | null;
+  category?: string | null;
+  /** Stock en centros de acopio (reciben donantes). */
+  acopioQty: number;
+  /** Stock en el almacén central de campaña. */
+  centralQty: number;
+  totalQty: number;
+  /** Meta en especie sumada de las campañas (0 = sin meta). */
+  targetQty: number;
+  /** targetQty − totalQty: > 0 falta · < 0 sobra · null sin meta. */
+  remaining: number | null;
+}
+
+/** Resumen de inventario de todos los centros: acopio vs almacén central. */
+export interface CentersSummary {
+  centers: { total: number; acopio: number; central: number; full: number; closed: number };
+  stock: { acopioQty: number; centralQty: number; totalQty: number; capacity: number; currentLoad: number };
+  goals: { total: number; reached: number };
+  products: CentersSummaryProduct[];
+}
+
+/** Transferencia de stock de un centro de acopio al almacén central. */
+export interface Transfer {
+  id: string;
+  code: string;
+  fromCenterId: string;
+  toCenterId: string;
+  note?: string | null;
+  createdAt: string;
+  items: { id: string; name: string; quantity: number; unit?: string }[];
+  fromCenter?: { id: string; name: string } | null;
+  toCenter?: { id: string; name: string } | null;
+  user?: { id: string; fullName: string } | null;
 }
 
 export interface ShiftAssignment {

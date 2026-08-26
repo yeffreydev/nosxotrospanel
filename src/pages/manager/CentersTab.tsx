@@ -18,6 +18,7 @@ import {
   useToast,
 } from '../../components/ui';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CentersSummary } from '../../components/CentersSummary';
 import {
   useCenters,
   useCenter,
@@ -41,6 +42,7 @@ function loadTone(status: CenterStatus): Tone {
   return 'brand';
 }
 
+
 export function CentersTab() {
   const t = useT();
   const { data, isLoading } = useCenters();
@@ -61,6 +63,7 @@ export function CentersTab() {
 
   return (
     <>
+      <CentersSummary />
       <div className={s.toolbar}>
         <div className={s.toolbarSpacer} />
         <Button icon="plus" onClick={() => setCreateOpen(true)}>

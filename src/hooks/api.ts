@@ -16,10 +16,12 @@ import type {
   MyCampaignEnrollment,
   Category,
   Center,
+  CentersSummary,
   InventoryItem,
   InventoryMovement,
   Dispatch,
   DispatchItem,
+  Transfer,
   Donation,
   Emergency,
   EmergencyMapPoint,
@@ -186,6 +188,16 @@ export function useCenters(params?: { status?: string }) {
     queryFn: () => get<Center[]>('/centers', params),
   });
 }
+/** Resumen de inventario de los centros (staff): global o de una campaña. La
+ * clave cuelga de 'centers' para que cualquier mutación de inventario lo
+ * refresque. */
+export function useCentersSummary(campaignId?: string) {
+  return useQuery({
+    queryKey: ['centers', 'summary', campaignId ?? 'all'],
+    queryFn: () =>
+      get<CentersSummary>('/centers/summary', campaignId ? { campaignId } : undefined),
+  });
+}
 export function useCenter(id?: string) {
   return useQuery({
     queryKey: ['center', id],
@@ -227,18 +239,28 @@ export interface CreateInventoryItemBody {
   unit?: string;
   expiresAt?: string;
   note?: string;
+  // Donante presencial: con estos campos el backend además crea la donación
+  // GOODS ya recibida (con código) y la enlaza al movimiento de entrada.
+  donorAnonymous?: boolean;
+  donorName?: string;
+  donorPhone?: string;
+  donorEmail?: string;
 }
 export function useCreateInventoryItem(campaignId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ centerId, body }: { centerId: string; body: CreateInventoryItemBody }) =>
       api
-        .post<InventoryItem & { merged: boolean }>(`/centers/${centerId}/inventory`, body)
+        .post<
+          InventoryItem & { merged: boolean; donation?: { id: string; code: string } | null }
+        >(`/centers/${centerId}/inventory`, body)
         .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['centers'] });
       qc.invalidateQueries({ queryKey: ['center'] });
       qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
+      // El ingreso con donante crea una donación: la lista debe refrescarse.
+      qc.invalidateQueries({ queryKey: ['donations'] });
       invalidateOps(qc, campaignId);
     },
   });
@@ -269,6 +291,39 @@ export function useUpdateInventoryItem(campaignId?: string) {
       qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
       invalidateOps(qc, campaignId);
     },
+  });
+}
+// Transferencia de stock al almacén central de la campaña. Con `all: true` se
+// pasa todo lo recaudado; si no, los ítems y cantidades elegidos.
+export function useTransferCenterItems(campaignId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      centerId,
+      body,
+    }: {
+      centerId: string;
+      body: {
+        toCenterId?: string;
+        all?: boolean;
+        items?: { itemId: string; quantity: number }[];
+        note?: string;
+      };
+    }) => api.post<Transfer>(`/centers/${centerId}/transfer`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['centers'] });
+      qc.invalidateQueries({ queryKey: ['center'] });
+      qc.invalidateQueries({ queryKey: ['campaign', campaignId, 'goals'] });
+      invalidateOps(qc, campaignId);
+    },
+  });
+}
+// Historial de transferencias de un centro (enviadas y recibidas).
+export function useCenterTransfers(centerId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['center', centerId, 'transfers'],
+    queryFn: () => get<Transfer[]>(`/centers/${centerId}/transfers`),
+    enabled: !!centerId && enabled,
   });
 }
 // Historial de movimientos del almacén de un centro.
@@ -708,7 +763,8 @@ export interface CreateZoneBody {
 }
 export interface CreateBrigadeBody {
   name: string;
-  zoneId?: string;
+  /** null en un PATCH quita la brigada de su zona. */
+  zoneId?: string | null;
   meetingPoint?: string;
   meetingPointMapUrl?: string;
   contactPhone?: string;
