@@ -72,8 +72,8 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.01em;
   color: var(--text);
 }
-h1 { font-size: var(--fs-3xl); }
-h2 { font-size: var(--fs-2xl); }
+h1 { font-size: clamp(1.75rem, 5vw, var(--fs-3xl)); }
+h2 { font-size: clamp(1.4rem, 4vw, var(--fs-2xl)); }
 h3 { font-size: var(--fs-xl); }
 h4 { font-size: var(--fs-lg); }
 
@@ -97,6 +97,11 @@ ul, ol { list-style: none; padding: 0; }
   max-width: var(--container);
   margin-inline: auto;
   padding-inline: var(--sp-4);
+}
+@media (min-width: 720px) {
+  .container {
+    padding-inline: var(--sp-5);
+  }
 }
 
 .sr-only {
@@ -164,5 +169,5 @@ ul, ol { list-style: none; padding: 0; }
 .n-grid-cards {
   display: grid;
   gap: var(--sp-4);
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
 }

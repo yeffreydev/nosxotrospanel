@@ -53,9 +53,11 @@ export function AppHeader() {
 
         <div className={s.headerRight}>
           {showInstall && (
-            <Button size="sm" variant="gold" icon="download" onClick={onInstall}>
-              {t('nav.install')}
-            </Button>
+            <span className={s.installWrap}>
+              <Button size="sm" variant="gold" icon="download" onClick={onInstall}>
+                {t('nav.install')}
+              </Button>
+            </span>
           )}
           {user && (
             <span className={s.bellWrap}>
@@ -69,7 +71,7 @@ export function AppHeader() {
               type="button"
               onClick={() => navigate(homeFor(user.role))}
               aria-label={user.fullName}
-              style={{ borderRadius: '50%' }}
+              style={{ borderRadius: '50%', padding: 3 }}
             >
               <Avatar name={user.fullName} src={user.avatarUrl} size={38} />
             </button>

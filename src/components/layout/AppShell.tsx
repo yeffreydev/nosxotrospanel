@@ -61,8 +61,8 @@ export function AppShell() {
 
 export function PageHead({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
-    <div className={s.pageHead} style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 'var(--sp-3)' }}>
-      <div>
+    <div className={s.pageHead} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 'var(--sp-3)' }}>
+      <div style={{ minWidth: 0 }}>
         <h1 className={s.pageTitle}>{title}</h1>
         {subtitle && <p className={s.pageSub}>{subtitle}</p>}
       </div>

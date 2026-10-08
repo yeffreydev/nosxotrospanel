@@ -41,6 +41,12 @@
   gap: var(--sp-3);
   font-size: var(--fs-sm);
 }
+@media (max-width: 479px) {
+  .barRow {
+    grid-template-columns: minmax(64px, 84px) 1fr 48px;
+    gap: var(--sp-2);
+  }
+}
 .barLabel {
   color: var(--text-muted);
   font-weight: var(--fw-medium);
@@ -81,9 +87,22 @@
 .lineLabels {
   display: flex;
   justify-content: space-between;
+  gap: var(--sp-1);
   margin-top: var(--sp-2);
   font-size: var(--fs-xs);
   color: var(--text-muted);
+}
+.lineLabels > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 479px) {
+  /* Con muchos puntos las fechas se pisan: solo se muestran los extremos. */
+  .lineLabels > *:not(:first-child):not(:last-child) {
+    display: none;
+  }
 }
 
 /* generic toolbar */

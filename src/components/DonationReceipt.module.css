@@ -42,6 +42,15 @@
   gap: var(--sp-2) var(--sp-5);
   margin: var(--sp-4) 0;
 }
+@media (max-width: 479px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+.field {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .field span {
   display: block;
   font-size: var(--fs-xs);
@@ -82,6 +91,12 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--sp-6);
   margin-top: 56px;
+}
+@media (max-width: 479px) {
+  .signatures {
+    grid-template-columns: 1fr;
+    gap: var(--sp-8);
+  }
 }
 .signature {
   text-align: center;

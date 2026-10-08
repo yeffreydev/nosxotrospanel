@@ -138,7 +138,7 @@ type TabKey = 'resumen' | 'zonas' | 'centros' | 'beneficiarios' | 'ajustes';
 /* Dos secciones lado a lado dentro de una pestaña; en angosto se apilan. */
 const TWO_COLS: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
   gap: 'var(--sp-4)',
   alignItems: 'start',
 };
@@ -204,7 +204,20 @@ export default function CampaignPanel() {
         <Button variant="subtle" icon="chevronLeft" onClick={() => navigate('/organizador')}>
           {t('common.back')}
         </Button>
-        <h1 style={{ fontSize: 'var(--fs-xl)', fontWeight: 'var(--fw-black)', flex: 1 }}>{campaign.title}</h1>
+        <h1
+          style={{
+            fontSize: 'var(--fs-xl)',
+            fontWeight: 'var(--fw-black)',
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={campaign.title}
+        >
+          {campaign.title}
+        </h1>
         <StatusBadge status={campaign.status} />
       </div>
 
@@ -1018,7 +1031,7 @@ function Centros({ id, ops }: { id?: string; ops: CampaignOperations }) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
           gap: 'var(--sp-4)',
           alignItems: 'start',
         }}

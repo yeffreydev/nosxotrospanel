@@ -65,7 +65,7 @@ export function centerIcon(status: CenterStatus): L.DivIcon {
   });
 }
 
-export const CAMPAIGN_COLOR = '#7c3aed';
+export const CAMPAIGN_COLOR = '#2b7de9'; // --info-500: azul dentro de la paleta
 
 export function campaignIcon(): L.DivIcon {
   ensureLeafletIcons();

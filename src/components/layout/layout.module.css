@@ -7,10 +7,11 @@
   position: sticky;
   top: 0;
   z-index: var(--z-header);
-  height: var(--header-h);
-  background: #0a2f1a;
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  background: var(--header-bg);
   backdrop-filter: saturate(180%) blur(12px);
-  border-bottom: 1px solid rgba(58, 170, 53, 0.35);
+  border-bottom: 1px solid var(--header-line);
   color: #fff;
 }
 /* Logo blanco del header */
@@ -71,6 +72,13 @@
 }
 .headerLink:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
 .headerLinkActive { background: rgba(58, 170, 53, 0.25); color: #fff; }
+@media (max-width: 479px) {
+  /* En pantallas muy angostas el logo cede espacio a los botones de la derecha. */
+  .brandLogo { height: 24px; }
+  /* El botón «Instalar» se oculta: InstallPrompt ya ofrece la instalación. */
+  .installWrap { display: none; }
+}
+.installWrap { display: contents; }
 .headerRight {
   margin-left: auto;
   display: flex;
@@ -185,7 +193,7 @@
   justify-content: center;
   gap: 3px;
   color: var(--ink-400);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
   transition: color var(--t-fast);
   position: relative;

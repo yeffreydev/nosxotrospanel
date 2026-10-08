@@ -12,7 +12,7 @@ export function OpsMap({
   emergencies = [],
   centers = [],
   campaigns = [],
-  height = 480,
+  height = 'min(60vh, 480px)',
   onSelectEmergency,
 }: {
   emergencies?: EmergencyMapPoint[];

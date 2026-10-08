@@ -293,13 +293,13 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
                           ? <Badge tone="success" dot>Acreditado</Badge>
                           : <Badge tone="warn" dot>Por verificar</Badge>}{' '}
                         <Badge tone="neutral">{p.payment?.method ?? '—'}</Badge>
-                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
                           {p.anonymous ? 'Donante anónimo' : (p.donorName ?? 'Sin nombre')}
                           {p.donorEmail ? ` (${p.donorEmail})` : ''}
                           {p.campaign ? ` · ${p.campaign.title}` : ' · sin campaña'}
                           {` · ${new Date(p.createdAt).toLocaleString()}`}
                         </div>
-                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
                           Cuenta origen: {p.payment?.payerAccountNumber ?? '—'}
                           {' · '}Operación: {p.payment?.operationNumber ?? '—'}
                           {' · '}Código: {p.code}
@@ -349,11 +349,11 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
           const verified = o.organization ? o.organization.verified : o.emailVerified;
           return (
             <Card key={o.id}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                   <strong>{o.fullName}</strong>{' '}
                   {verified ? <Badge tone="success" dot>Verificado</Badge> : <Badge tone="warn" dot>Pendiente</Badge>}
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
                     {o.email}{o.phone ? ` · ${o.phone}` : ''}
                     {o.organization ? ` · ${o.organization.name} (RUC ${o.organization.ruc ?? '—'})` : ' · sin organización'}
                   </div>
@@ -384,11 +384,11 @@ function Dashboard({ token, onLogout, onExpired }: { token: string; onLogout: ()
           const published = c.status !== 'DRAFT';
           return (
             <Card key={c.id}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                   <strong>{c.title}</strong> <Badge tone="neutral">{c.status}</Badge>{' '}
                   {published ? <Badge tone="success" dot>Publicada</Badge> : <Badge tone="warn" dot>No publicada</Badge>}
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
                     {c.organizer?.fullName ?? '—'} · {formatSoles(c.raisedAmount)} · {c.backersCount} donantes · {c.donationsCount} donaciones · {c.zonesCount} zonas
                   </div>
                 </div>

@@ -129,8 +129,8 @@ const iconBadge: React.CSSProperties = {
 const closeBtn: React.CSSProperties = {
   display: 'grid',
   placeItems: 'center',
-  width: 34,
-  height: 34,
+  width: 44,
+  height: 44,
   borderRadius: 'var(--r-full)',
   color: 'var(--text-muted)',
   background: 'transparent',

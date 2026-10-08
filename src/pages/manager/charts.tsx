@@ -57,7 +57,7 @@ export function LineChart({ data }: { data: { label: string; value: number }[] }
 
   return (
     <div>
-      <svg className={s.lineSvg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Tendencia de donaciones">
+      <svg className={s.lineSvg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Tendencia de donaciones">
         <defs>
           <linearGradient id="nx-trend" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgba(60,193,57,0.32)" />

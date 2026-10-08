@@ -59,6 +59,13 @@
 }
 .nav > * {
   flex: 1;
+  min-width: 0;
+}
+@media (max-width: 479px) {
+  /* Botones apilados: la acción de avanzar (última en el DOM) queda arriba. */
+  .nav {
+    flex-direction: column-reverse;
+  }
 }
 
 .needsGrid {

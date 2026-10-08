@@ -152,12 +152,12 @@ export function ReportsTab() {
                   {r.district && <span className={s.muted}>{r.district}</span>}
                 </div>
                 <p style={{ margin: 'var(--sp-3) 0', color: 'var(--text-muted)' }}>{r.description}</p>
-                <div className={s.muted} style={{ fontSize: '0.8rem' }}>
+                <div className={s.muted} style={{ fontSize: 'var(--fs-sm)' }}>
                   {r.anonymous ? 'Reporte anónimo' : r.reporterName || 'Sin nombre'}
                   {!r.anonymous && r.reporterPhone ? ` · ${r.reporterPhone}` : ''} · {fmtDate(r.createdAt)}
                 </div>
                 {r.emergency && (
-                  <div className={s.muted} style={{ fontSize: '0.8rem', marginTop: 4 }}>
+                  <div className={s.muted} style={{ fontSize: 'var(--fs-sm)', marginTop: 4 }}>
                     → Emergencia: <strong>{r.emergency.title}</strong>
                   </div>
                 )}

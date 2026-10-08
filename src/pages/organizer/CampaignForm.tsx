@@ -450,7 +450,7 @@ const errors: Record<string, string> = {
         title="¿Dónde se trabaja?"
         hint="Elige región, provincia y distrito, y con esta ubicación se crea sola la zona principal de tu campaña, donde luego despachas la ayuda."
       >
-        <div style={{ display: 'grid', gap: 'var(--sp-4)', gridTemplateColumns: '1fr 1fr 1fr' }}>
+        <div style={{ display: 'grid', gap: 'var(--sp-4)', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))' }}>
           <Select
             label="Región"
             hint={t('common.optional')}
@@ -570,7 +570,12 @@ const errors: Record<string, string> = {
               return (
                 <div
                   key={i}
-                  style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: '2fr 1fr 1fr auto', alignItems: 'end' }}
+                  style={{
+                    display: 'grid',
+                    gap: 'var(--sp-2)',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(140px, 100%), 1fr))',
+                    alignItems: 'end',
+                  }}
                 >
                   <Input
                     label="¿Qué necesitas?"
